@@ -1,0 +1,8 @@
+node_modules/
+out/
+dist/
+playwright-report/
+test-results/
+*.db
+*.db-shm
+*.db-wal
