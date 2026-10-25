@@ -1,36 +1,28 @@
 import { PropsWithChildren } from 'react';
-
-type HeaderAction = {
-  className?: string;
-  icon: string;
-  onClick: () => void;
-  variant?: 'filled' | 'outline';
-};
+import { IconButton, IconButtonProps } from '../buttons/IconButton';
 
 type PageContentProps = {
-  headerActions?: HeaderAction[];
+  actions?: IconButtonProps[];
   onBack?: () => void;
   title?: string;
 };
 
 export const PageContent = ({
   title,
-  headerActions,
+  actions,
   children,
   onBack,
 }: PropsWithChildren<PageContentProps>) => (
   <div className='flex flex-1 flex-col gap-4 min-h-[calc(100dvh-2rem)]'>
-    <div className='flex flex-row space-between'>
+    <div className='flex flex-row justify-between'>
       {title && <h2>{title}</h2>}
-      {headerActions?.map((action) => (
-        <button onClick={action.onClick}>{action.icon}</button>
+      {actions?.map((action) => (
+        <IconButton key={action.icon} {...action} />
       ))}
     </div>
     {children}
     {onBack && (
-      <button className='mt-auto self-start' onClick={onBack}>
-        back
-      </button>
+      <IconButton icon='bi-chevron-left' onClick={onBack} variant='outlined' />
     )}
   </div>
 );

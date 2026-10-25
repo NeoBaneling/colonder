@@ -1,5 +1,6 @@
 import type { PropsWithChildren } from 'react';
 import { NavLink } from 'react-router';
+import Logo from '../assets/logo.svg?react';
 
 const Navitem = ({
   icon,
@@ -30,11 +31,14 @@ const linkClassName = ({ isActive }: { isActive: boolean }) =>
 export const Navbar = () => (
   <div
     data-testid='navbar'
-    className='sticky top-4 flex shrink-0 flex-col gap-1 self-start bg-mint-600 w-15 md:w-48 h-fit md:h-[calc(100vh-2rem)] py-4 px-1.5 md:px-3 rounded-full md:rounded-3xl'
+    className='sticky flex shrink-0 flex-col gap-1 self-start bg-mint-600 w-15 md:w-48 h-fit md:h-[calc(100vh-2rem)] p-1.5 md:py-4 md:px-3 rounded-full md:rounded-3xl'
   >
-    <p className='hidden md:inline text-[17px] font-bold text-white'>
-      Colonder
-    </p>
+    <div className='flex flex-row items-center justify-center md:justify-start gap-2.5 mx-0.5 pb-2'>
+      <Logo className='w-[40px] h-[42px]' />
+      <p className='hidden md:inline text-[17px] font-bold text-white'>
+        Colonder
+      </p>
+    </div>
     <nav className='flex flex-col gap-1'>
       <NavLink to='/schedules' className={linkClassName}>
         {({ isActive }) => (
