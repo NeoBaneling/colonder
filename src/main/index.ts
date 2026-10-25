@@ -7,9 +7,9 @@ let database: Database.Database;
 
 function createWindow(): void {
   const window = new BrowserWindow({
-    width: 900,
-    height: 700,
-    minWidth: 640,
+    width: 1280,
+    height: 760,
+    minWidth: 720,
     minHeight: 520,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

@@ -1,19 +1,124 @@
-@import "tailwindcss";
+@import url('https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,200..1000;1,200..1000&family=Quicksand:wght@300..700&display=swap');
+@import url('https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.2/font/bootstrap-icons.min.css');
+@import 'tailwindcss';
 
-:root {
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  color: #292524;
-  background: #f7f7f5;
+@theme {
+  --font-header: 'Quicksand', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Nunito', ui-sans-serif, system-ui, sans-serif;
+
+  --color-*: initial;
+  --color-white: #ffffff;
+  --color-grey-100: #b4c3d9;
+  --color-grey-300: #4b5563;
+  --color-grey-600: #3f4a4a;
+  --color-grey-900: #1f2937;
+  --color-cherry-100: #fde4ea;
+  --color-cherry-600: #912018;
+  --color-orange: #b42318;
+  --color-bronze-100: #fdf0c4;
+  --color-bronze-600: #6b4e00;
+  --color-mint-50: #f4f8f8;
+  --color-mint-100: #e0f2f0;
+  --color-mint-300: #0f766e;
+  --color-mint-600: #0b5c56;
+  --color-fuchsia: #8a1d3b;
+
+  --breakpoint-*: initial;
+  --breakpoint-sm: 45rem;
+  --breakpoint-md: 56rem;
 }
 
-* {
-  box-sizing: border-box;
+@layer base {
+  body {
+    background-color: var(--color-mint-50);
+  }
+
+  title {
+    font-family: var(--font-header);
+    font-weight: 700;
+    font-size: 1.125rem;
+    color: var(--color-grey-900);
+
+    @variant sm {
+      font-size: 2rem;
+    }
+  }
+
+  h1 {
+    font-family: var(--font-header);
+    font-weight: 700;
+    font-size: 1.125rem;
+    color: var(--color-grey-900);
+
+    @variant sm {
+      font-size: 1.625rem;
+    }
+  }
+
+  h2 {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 0.938rem;
+    color: var(--color-grey-900);
+
+    @variant sm {
+      font-size: 1.375rem;
+    }
+  }
+
+  p {
+    font-family: var(--font-body);
+    font-weight: 400;
+    font-size: 0.875rem;
+    color: var(--color-grey-900);
+
+    @variant sm {
+      font-size: 1.375rem;
+    }
+  }
+
+  label {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 0.813rem;
+    color: var(--color-grey-900);
+
+    @variant sm {
+      font-size: 1.25rem;
+    }
+  }
+
+  caption {
+    font-family: var(--font-body);
+    font-weight: 400;
+    font-size: 0.75rem;
+    color: var(--color-grey-900);
+
+    @variant sm {
+      font-size: 1.125rem;
+    }
+  }
 }
 
-body {
-  min-width: 320px;
-  min-height: 100vh;
-  margin: 0;
+@layer components {
+  .grid-data {
+    font-family: var(--font-body);
+    font-weight: 600;
+    font-size: 0.688rem;
+    color: var(--color-grey-900);
+
+    @variant sm {
+      font-size: 0.875rem;
+    }
+  }
+
+  .tag {
+    font-family: var(--font-body);
+    font-weight: 700;
+    font-size: 0.75rem;
+
+    @variant sm {
+      font-size: 0.125rem;
+    }
+  }
 }
