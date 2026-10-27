@@ -5,6 +5,7 @@ import { Button } from '../inputs/Button';
 import { Toggle } from '../inputs/Toggle';
 import { PageContent } from '../layout/PageContent';
 import { DayControl } from './DayControl';
+import { TextField } from '../inputs/TextField';
 
 const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -55,7 +56,7 @@ const SettingsPage = () => {
             }
           }}
         >
-          {({ values, status }) => (
+          {({ values }) => (
             <Form>
               <div className="card">
                 <label>Working days</label>
@@ -75,44 +76,28 @@ const SettingsPage = () => {
                   )}
                 />
                 <div className="flex flex-row gap-6">
-                  <div className="flex flex-1 flex-col gap-1">
-                    <label htmlFor="targetNurses">Target nurses</label>
-                    <Field
-                      id="targetNurses"
-                      aria-label="Target nurses"
-                      type="number"
-                      name="targetNurses"
-                    />
-                  </div>
-                  <div className="flex flex-1 flex-col gap-1">
-                    <label htmlFor="targetTechs">Target techs</label>
-                    <Field
-                      id="targetTechs"
-                      aria-label="Target techs"
-                      type="number"
-                      name="targetTechs"
-                    />
-                  </div>
+                  <TextField
+                    name="targetNurses"
+                    label="Target nurses"
+                    type="number"
+                  />
+                  <TextField
+                    name="targetTechs"
+                    label="Target techs"
+                    type="number"
+                  />
                 </div>
                 <div className="flex flex-row gap-6">
-                  <div className="flex flex-1 flex-col gap-1">
-                    <label htmlFor="procRooms">Procedure rooms (PROC)</label>
-                    <Field
-                      id="procRooms"
-                      aria-label="Procedure rooms (PROC)"
-                      type="number"
-                      name="procRooms"
-                    />
-                  </div>
-                  <div className="flex flex-1 flex-col gap-1">
-                    <label htmlFor="deleteAfter">Delete after (weeks)</label>
-                    <Field
-                      id="deleteAfter"
-                      aria-label="Delete after (weeks)"
-                      type="number"
-                      name="deleteAfter"
-                    />
-                  </div>
+                  <TextField
+                    name="procRooms"
+                    label="Procedure rooms (PROC)"
+                    type="number"
+                  />
+                  <TextField
+                    name="deleteAfter"
+                    label="Delete after (weeks)"
+                    type="number"
+                  />
                 </div>
                 <div className="flex flex-row items-center gap-3">
                   <label>Theme</label>

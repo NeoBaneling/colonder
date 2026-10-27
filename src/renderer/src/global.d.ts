@@ -6,7 +6,10 @@ declare global {
   interface Window {
     staff: {
       list: () => Promise<Staff[]>
-      create: (firstName: string, lastName: string) => Promise<Staff>
+      get: (id: number) => Promise<Staff | null>
+      create: (staff: Omit<Staff, 'id'>) => Promise<Staff>
+      update: (id: number, staff: Omit<Staff, 'id'>) => Promise<Staff>
+      delete: (id: number) => Promise<boolean>
     }
     settings: {
       get: () => Promise<Settings>

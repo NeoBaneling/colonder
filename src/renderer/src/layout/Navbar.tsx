@@ -30,40 +30,40 @@ const linkClassName = ({ isActive }: { isActive: boolean }) =>
 
 export const Navbar = () => (
   <div
-    data-testid='navbar'
-    className='sticky flex shrink-0 flex-col gap-1 self-start bg-mint-600 w-15 md:w-48 h-fit md:h-[calc(100vh-2rem)] p-1.5 md:py-4 md:px-3 rounded-full md:rounded-3xl'
+    data-testid="navbar"
+    className="sticky flex shrink-0 flex-col gap-1 self-start bg-mint-600 w-15 md:w-48 h-fit md:h-[calc(100vh-2rem)] p-1.5 md:py-4 md:px-3 rounded-full md:rounded-3xl"
   >
-    <div className='flex flex-row items-center justify-center md:justify-start gap-2.5 mx-0.5 pb-2'>
-      <Logo className='w-[40px] h-[42px]' />
-      <p className='hidden md:inline text-[17px] font-bold text-white'>
+    <div className="flex flex-row items-center justify-center md:justify-start gap-2.5 mx-0.5 pb-2">
+      <Logo className="w-10 h-10.5" />
+      <p className="hidden md:inline text-[17px] font-bold text-white">
         Colonder
       </p>
     </div>
-    <nav className='flex flex-col gap-1'>
-      <NavLink to='/schedules' className={linkClassName}>
+    <nav className="flex flex-col gap-1">
+      <NavLink to="/schedules" className={linkClassName}>
         {({ isActive }) => (
-          <Navitem icon='bi-clock' isActive={isActive}>
+          <Navitem icon="bi-clock" isActive={isActive}>
             Schedules
           </Navitem>
         )}
       </NavLink>
-      <NavLink to='/new' className={linkClassName}>
+      <NavLink to="/new" className={linkClassName}>
         {({ isActive }) => (
-          <Navitem icon='bi-calendar3' isActive={isActive}>
+          <Navitem icon="bi-calendar3" isActive={isActive}>
             Create Schedule
           </Navitem>
         )}
       </NavLink>
-      <NavLink to='/staff' className={linkClassName}>
+      <NavLink to="/staff" className={linkClassName}>
         {({ isActive }) => (
-          <Navitem icon='bi-person' isActive={isActive}>
+          <Navitem icon="bi-person" isActive={isActive}>
             Staff
           </Navitem>
         )}
       </NavLink>
-      <NavLink to='/settings' className={linkClassName}>
+      <NavLink to="/settings" className={linkClassName}>
         {({ isActive }) => (
-          <Navitem icon='bi-sliders' isActive={isActive}>
+          <Navitem icon="bi-sliders" isActive={isActive}>
             Settings
           </Navitem>
         )}

@@ -14,7 +14,7 @@ export const DayControl = ({ index, name, value }: DayControlProps) => {
       type="button"
       aria-pressed={value}
       aria-label={name}
-      className={`flex flex-col justify-center w-20 h-20 gap-1 cursor-pointer font-body font-semibold border border-grey-200 rounded-2xl hover:border-mint-600 hover:bg-mint-50 ${value ? 'text-mint-600 border-mint-600 bg-mint-100 border-2' : ''}`}
+      className={`flex flex-col justify-center w-15 h-15 sm:w-20 sm:h-20 gap-1 cursor-pointer font-body font-semibold border border-grey-200 rounded-2xl hover:border-mint-600 hover:bg-mint-50 ${value ? 'text-mint-600 border-mint-600 bg-mint-100 border-2' : ''}`}
       onClick={() => setValue(!value)}
     >
       {name}

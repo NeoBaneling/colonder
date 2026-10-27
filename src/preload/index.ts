@@ -3,8 +3,14 @@ import type { Settings, Staff } from '@app/types';
 
 contextBridge.exposeInMainWorld('staff', {
   list: (): Promise<Staff[]> => ipcRenderer.invoke('staff:list'),
-  create: (firstName: string, lastName: string): Promise<Staff> =>
-    ipcRenderer.invoke('staff:create', firstName, lastName),
+  get: (id: number): Promise<Staff | null> =>
+    ipcRenderer.invoke('staff:get', id),
+  create: (staff: Omit<Staff, 'id'>): Promise<Staff> =>
+    ipcRenderer.invoke('staff:create', staff),
+  update: (id: number, staff: Omit<Staff, 'id'>): Promise<Staff> =>
+    ipcRenderer.invoke('staff:update', id, staff),
+  delete: (id: number): Promise<boolean> =>
+    ipcRenderer.invoke('staff:delete', id),
 });
 
 contextBridge.exposeInMainWorld('settings', {

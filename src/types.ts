@@ -1,7 +1,33 @@
+export enum Role {
+  Nurse,
+  Tech,
+}
+
+export enum Emp {
+  FullTime,
+  PartTime,
+  PRN,
+}
+
+export enum Dept {
+  PACU,
+  PROC,
+  PRE,
+}
+
 export interface Staff {
   id: number;
   firstName: string;
   lastName: string;
+  title: string;
+  role: Role;
+  employment: Emp;
+  departments: Dept[];
+  /* format HH:MM */
+  startTime: string;
+  isLeader: boolean;
+  inOrientation: boolean;
+  ipcIds: number[];
 }
 
 export interface Settings {

@@ -4,6 +4,7 @@ import GeneratorPage from './generator/Generator';
 import SchedulesPage from './schedules/Schedules';
 import SettingsPage from './settings/Settings';
 import StaffPage from './staff/Staff';
+import StaffForm from './staff/StaffForm';
 
 export const router = createHashRouter([
   {
@@ -13,7 +14,19 @@ export const router = createHashRouter([
       { index: true, Component: SchedulesPage },
       { path: 'schedules', Component: SchedulesPage },
       { path: 'new', Component: GeneratorPage },
-      { path: 'staff', Component: StaffPage },
+      {
+        path: 'staff',
+        children: [
+          {
+            index: true,
+            Component: StaffPage,
+          },
+          {
+            path: ':staffId',
+            Component: StaffForm,
+          },
+        ],
+      },
       { path: 'settings', Component: SettingsPage },
     ],
   },

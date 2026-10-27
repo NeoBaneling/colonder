@@ -30,4 +30,7 @@ npm test
 npm run test:e2e
 ```
 
-The end-to-end command builds the app and runs the Electron Playwright test.
+The end-to-end command builds the app and runs the Electron Playwright test with
+its window and macOS Dock icon hidden. Playwright's `use.headless` setting
+controls browser launches, not Electron windows, so the E2E launch explicitly
+enables the app's hidden-window mode.

@@ -5,4 +5,7 @@ export default defineConfig({
   workers: 1,
   reporter: 'list',
   timeout: 30_000,
+  use: {
+    headless: true,
+  },
 });
