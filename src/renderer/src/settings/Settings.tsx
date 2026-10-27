@@ -45,7 +45,7 @@ const SettingsPage = () => {
           onSubmit={async (values, { resetForm, setStatus }) => {
             try {
               const savedSettings = await window.settings.save(values);
-              resetForm({ values: savedSettings, status: 'saved' });
+              resetForm({ values: savedSettings });
             } catch (error) {
               setStatus(
                 error instanceof Error
@@ -55,7 +55,7 @@ const SettingsPage = () => {
             }
           }}
         >
-          {({ values, status, dirty }) => (
+          {({ values, status }) => (
             <Form>
               <div className="card">
                 <label>Working days</label>

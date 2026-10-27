@@ -29,7 +29,18 @@ test('saves and restores settings from SQLite', async () => {
     await page.getByRole('button', { name: 'Thu' }).click();
     await page.locator('.toggle').click();
     await page.getByRole('button', { name: 'Save' }).click();
-    await expect(page.getByRole('status')).toHaveText('Settings saved.');
+    await expect
+      .poll(() =>
+        page.evaluate(() => window.settings.get()),
+      )
+      .toMatchObject({
+        workingDays: [true, true, true, true, false, true, false],
+        targetNurses: 17,
+        targetTechs: 8,
+        procRooms: 6,
+        deleteAfter: 24,
+        isDark: true,
+      });
 
     await app.close();
     app = await launchApp();
