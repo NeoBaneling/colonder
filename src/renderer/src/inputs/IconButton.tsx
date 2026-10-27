@@ -2,7 +2,7 @@ export type IconButtonProps = {
   className?: string;
   disabled?: boolean;
   icon: string;
-  onClick: () => void;
+  onClick?: () => void;
   variant: 'filled' | 'outlined';
 };
 

@@ -1,6 +1,6 @@
 # Colonder
 
-A small desktop notes app built with Electron, Vite, React, Tailwind CSS, Formik,
+Standalone staff scheduling desktop app for GI unit. Built with Electron, Vite, React, Tailwind CSS, Formik,
 Yup, and SQLite.
 
 ## Getting started
@@ -12,7 +12,7 @@ npm install
 npm run dev
 ```
 
-Notes are stored in a SQLite database in Electron's application data directory.
+Staff and settings are stored in a SQLite database in Electron's application data directory. Settings are loaded when the Settings page opens and are saved when you select Save.
 
 ## Build and preview
 
