@@ -39,6 +39,50 @@ export interface Settings {
   isDark: boolean;
 }
 
+export type SegmentStep = 'pto' | 'prn' | 'review';
+
+export type SegmentWarning = {
+  code:
+    | 'DAY_UNDER_TARGET'
+    | 'STAFF_SHORT_OF_DAYS'
+    | 'IPC_SAME_DAY'
+    | 'LEADER_COVERAGE_GAP'
+    | 'ONCALL_MULTIPLE';
+  message: string;
+  date?: string;
+  staffId?: number;
+};
+
+export type SegmentShift = {
+  staffId: number;
+  date: string;
+  kind: 'work' | 'pto';
+  countsTowardTargets: boolean;
+};
+
+export interface SegmentState {
+  step: SegmentStep;
+  startDate: string;
+  endDate: string;
+  ptoDates: string[];
+  prnDates: string[];
+  shifts: SegmentShift[];
+  onCall: string[];
+  staffSnapshot: Staff[];
+  settingsSnapshot: Settings;
+  seed: number;
+  hasManualEdits: boolean;
+}
+
+export interface ScheduleSegment {
+  id: number;
+  startDate: string;
+  endDate: string;
+  status: 'draft' | 'confirmed';
+  createdAt: string;
+  state: SegmentState;
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   workingDays: [false, true, true, true, true, true, false],
   targetNurses: 13,

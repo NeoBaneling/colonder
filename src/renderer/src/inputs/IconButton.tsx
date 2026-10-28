@@ -6,6 +6,7 @@ export type IconButtonProps = {
   disabled?: boolean;
   icon: string;
   onClick?: () => void;
+  title?: string;
   variant: 'filled' | 'outlined';
 };
 
@@ -14,11 +15,13 @@ export const IconButton = ({
   disabled,
   icon,
   onClick,
+  title,
   variant = 'filled',
   className,
 }: IconButtonProps) => (
   <button
     aria-label={ariaLabel}
+    title={title}
     disabled={disabled}
     onClick={onClick}
     className={twMerge(

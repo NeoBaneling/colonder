@@ -253,6 +253,7 @@ export const StaffForm = () => {
         onCancel={() => setShowDelModal(false)}
         onConfirm={handleDelete}
         confirmLabel="Delete staff"
+        confirmVariant="danger"
       >
         <div className="flex flex-col gap-3">
           <p>{`This removes ${staff?.firstName} from the staff list and from future schedules. Their ${staff?.ipcIds.length ?? 0} interpersonal conflicts will be cleared too. Existing schedules in History stay as they are.`}</p>

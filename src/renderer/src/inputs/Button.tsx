@@ -20,7 +20,7 @@ export const Button = ({
     disabled={disabled}
     onClick={onClick}
     type={type}
-    className={`flex items-center justify-center w-wrap min-h-11 px-4 font-body rounded-lg cursor-pointer ${variant === 'filled' ? 'bg-mint-600 text-white hover:bg-mint-300 active:bg-mint-400 active:text-mint-100' : 'border border-mint-600 text-mint-600 hover:bg-mint-100 active:bg-mint-200'} ${className}`}
+    className={`flex items-center justify-center w-wrap min-h-11 px-4 font-sans rounded-lg cursor-pointer ${variant === 'filled' ? 'bg-mint-600 text-white hover:bg-mint-300 active:bg-mint-400 active:text-mint-100' : 'border border-mint-600 text-mint-600 hover:bg-mint-100 active:bg-mint-200'} ${className}`}
   >
     {children}
   </button>

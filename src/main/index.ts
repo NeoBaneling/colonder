@@ -7,6 +7,8 @@ import {
   Emp,
   isSettings,
   Role,
+  type ScheduleSegment,
+  type SegmentState,
   type Settings,
   type Staff,
 } from '@app/types';
@@ -25,6 +27,21 @@ type StaffRow = {
   isLeader: number;
   inOrientation: number;
 };
+
+type SegmentRow = {
+  id: number;
+  startDate: string;
+  endDate: string;
+  status: 'draft' | 'confirmed';
+  createdAt: string;
+  state: string;
+};
+
+const isISODate = (value: unknown): value is string =>
+  typeof value === 'string' &&
+  /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+  !Number.isNaN(Date.parse(`${value}T00:00:00.000Z`)) &&
+  new Date(`${value}T00:00:00.000Z`).toISOString().slice(0, 10) === value;
 
 const isDepartment = (value: unknown): value is Dept =>
   value === Dept.PACU || value === Dept.PROC || value === Dept.PRE;
@@ -109,6 +126,76 @@ const listStaff = (): Staff[] => {
 
 const getStaff = (id: number): Staff | null =>
   listStaff().find((staff) => staff.id === id) ?? null;
+
+function assertValidSegmentState(value: unknown): asserts value is SegmentState {
+  if (typeof value !== 'object' || value === null) {
+    throw new TypeError('Invalid schedule draft.');
+  }
+  const state = value as Record<string, unknown>;
+  if (
+    !['pto', 'prn', 'review'].includes(String(state.step)) ||
+    !isISODate(state.startDate) ||
+    !isISODate(state.endDate) ||
+    !Array.isArray(state.ptoDates) ||
+    !state.ptoDates.every((key) => typeof key === 'string') ||
+    !Array.isArray(state.prnDates) ||
+    !state.prnDates.every((key) => typeof key === 'string') ||
+    !Array.isArray(state.onCall) ||
+    !state.onCall.every((key) => typeof key === 'string') ||
+    !Array.isArray(state.shifts) ||
+    !state.shifts.every(
+      (shift) =>
+        typeof shift === 'object' &&
+        shift !== null &&
+        Number.isSafeInteger((shift as Record<string, unknown>).staffId) &&
+        isISODate((shift as Record<string, unknown>).date) &&
+        ['work', 'pto'].includes(
+          String((shift as Record<string, unknown>).kind),
+        ) &&
+        typeof (shift as Record<string, unknown>).countsTowardTargets ===
+          'boolean',
+    ) ||
+    !Array.isArray(state.staffSnapshot) ||
+    !state.staffSnapshot.every(
+      (staffer) =>
+        typeof staffer === 'object' &&
+        staffer !== null &&
+        Number.isSafeInteger((staffer as Record<string, unknown>).id) &&
+        Number((staffer as Record<string, unknown>).id) > 0,
+    ) ||
+    !isSettings(state.settingsSnapshot) ||
+    !Number.isSafeInteger(state.seed) ||
+    typeof state.hasManualEdits !== 'boolean'
+  ) {
+    throw new TypeError('Invalid schedule draft.');
+  }
+
+  for (const staffer of state.staffSnapshot as Staff[]) {
+    assertValidStaff(staffer);
+  }
+}
+
+const mapSegmentRow = (row: SegmentRow): ScheduleSegment => {
+  const state: unknown = JSON.parse(row.state);
+  assertValidSegmentState(state);
+  return {
+    id: row.id,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    status: row.status,
+    createdAt: row.createdAt,
+    state,
+  };
+};
+
+const listSegments = (): ScheduleSegment[] =>
+  (database
+    .prepare(
+      `SELECT id, start_date AS startDate, end_date AS endDate, status,
+              created_at AS createdAt, state
+       FROM schedule_segment ORDER BY created_at DESC, id DESC`,
+    )
+    .all() as SegmentRow[]).map(mapSegmentRow);
 
 const saveStaff = (staff: Omit<Staff, 'id'>, id?: number): Staff => {
   assertValidStaff(staff);
@@ -272,6 +359,16 @@ app.whenReady().then(() => {
       is_dark INTEGER NOT NULL CHECK (is_dark IN (0, 1))
     )
   `);
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS schedule_segment (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      status TEXT NOT NULL CHECK (status IN ('draft', 'confirmed')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      state TEXT NOT NULL
+    )
+  `);
   database
     .prepare(
       `INSERT OR IGNORE INTO settings
@@ -365,6 +462,98 @@ app.whenReady().then(() => {
       );
 
     return settings;
+  });
+
+  ipcMain.handle('segments:list', (): ScheduleSegment[] => listSegments());
+  ipcMain.handle(
+    'segments:create',
+    (_event, state: unknown): ScheduleSegment => {
+      assertValidSegmentState(state);
+      const result = database
+        .prepare(
+          `INSERT INTO schedule_segment (start_date, end_date, status, state)
+           VALUES (?, ?, 'draft', ?)`,
+        )
+        .run(state.startDate, state.endDate, JSON.stringify(state));
+      const saved = listSegments().find(
+        ({ id }) => id === Number(result.lastInsertRowid),
+      );
+      if (!saved) throw new Error('Unable to load the new schedule draft.');
+      return saved;
+    },
+  );
+  ipcMain.handle(
+    'segments:save-draft',
+    (_event, id: number, state: unknown): ScheduleSegment => {
+      if (!Number.isSafeInteger(id) || id < 1) {
+        throw new TypeError('Invalid schedule ID.');
+      }
+      assertValidSegmentState(state);
+      const result = database
+        .prepare(
+          `UPDATE schedule_segment
+           SET start_date = ?, end_date = ?, state = ?
+           WHERE id = ? AND status = 'draft'`,
+        )
+        .run(state.startDate, state.endDate, JSON.stringify(state), id);
+      if (result.changes === 0) {
+        throw new Error('This draft no longer exists or is already confirmed.');
+      }
+      const saved = listSegments().find((segment) => segment.id === id);
+      if (!saved) throw new Error('Unable to load the saved schedule draft.');
+      return saved;
+    },
+  );
+  ipcMain.handle(
+    'segments:confirm',
+    (_event, id: number, state: unknown): ScheduleSegment => {
+      if (!Number.isSafeInteger(id) || id < 1) {
+        throw new TypeError('Invalid schedule ID.');
+      }
+      assertValidSegmentState(state);
+      const confirmSegment = database.transaction(() => {
+        const overlap = database
+          .prepare(
+            `SELECT id FROM schedule_segment
+             WHERE status = 'confirmed' AND id <> ?
+               AND start_date <= ? AND end_date >= ?`,
+          )
+          .get(id, state.endDate, state.startDate);
+        if (overlap) {
+          throw new Error(
+            'This date range overlaps an existing confirmed schedule.',
+          );
+        }
+        const result = database
+          .prepare(
+            `UPDATE schedule_segment
+             SET start_date = ?, end_date = ?, status = 'confirmed', state = ?
+             WHERE id = ? AND status = 'draft'`,
+          )
+          .run(state.startDate, state.endDate, JSON.stringify(state), id);
+        if (result.changes === 0) {
+          throw new Error(
+            'This draft no longer exists or is already confirmed.',
+          );
+        }
+      });
+      confirmSegment();
+      const saved = listSegments().find((segment) => segment.id === id);
+      if (!saved) throw new Error('Unable to load the confirmed schedule.');
+      return saved;
+    },
+  );
+  ipcMain.handle('segments:delete-draft', (_event, id: number): boolean => {
+    if (!Number.isSafeInteger(id) || id < 1) {
+      throw new TypeError('Invalid schedule ID.');
+    }
+    return (
+      database
+        .prepare(
+          `DELETE FROM schedule_segment WHERE id = ? AND status = 'draft'`,
+        )
+        .run(id).changes > 0
+    );
   });
 
   createWindow();

@@ -88,6 +88,7 @@ test('creates, edits, reloads, and deletes staff in SQLite', async () => {
         COLONDER_E2E_HEADLESS: '1',
       },
     });
+
   let app = await launchApp();
 
   try {
@@ -184,6 +185,215 @@ test('creates, edits, reloads, and deletes staff in SQLite', async () => {
       .getByRole('button', { name: 'Delete staff' })
       .click();
     await expect(page.getByText('No staff have been added.')).toBeVisible();
+  } finally {
+    await app.close();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test('creates and confirms a six-week schedule', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-schedule-e2e-'));
+  const app = await electron.launch({
+    args: ['.'],
+    env: {
+      ...process.env,
+      COLONDER_USER_DATA: userDataPath,
+      COLONDER_E2E_HEADLESS: '1',
+    },
+  });
+
+  try {
+    const page = await app.firstWindow();
+    await page.evaluate(() =>
+      Promise.all([
+        window.staff.create({
+          firstName: 'Ada',
+          lastName: 'Nurse',
+          title: 'RN',
+          role: 0,
+          employment: 0,
+          departments: [0],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
+        window.staff.create({
+          firstName: 'Penny',
+          lastName: 'Prn',
+          title: 'RN',
+          role: 0,
+          employment: 2,
+          departments: [0],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
+      ]),
+    );
+
+    await page.getByRole('link', { name: 'Create Schedule' }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Create Schedule' }),
+    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: /PTO calendar/ })).toBeVisible();
+    await expect
+      .poll(() =>
+        page.locator('.input-grid').evaluate(
+          (grid) => grid.closest('.schedule-grid-scroll')!.scrollWidth <=
+            grid.closest('.schedule-grid-scroll')!.clientWidth,
+        ),
+      )
+      .toBe(true);
+    await page.setViewportSize({ width: 900, height: 700 });
+    await expect
+      .poll(() =>
+        page.locator('.input-grid').first().evaluate((grid) => {
+          const container = grid.closest('.schedule-grid-scroll')!;
+          return container.scrollWidth > container.clientWidth;
+        }),
+      )
+      .toBe(true);
+    const inputGridScroll = page.locator('.input-grid').first();
+    const inputNameCell = inputGridScroll.locator('.schedule-name-cell').first();
+    await expect
+      .poll(() =>
+        inputNameCell.evaluate(
+          (cell) => getComputedStyle(cell, '::before').display,
+        ),
+      )
+      .toBe('none');
+    await inputGridScroll.evaluate((grid) => {
+      grid.closest('.schedule-grid-scroll')!.scrollLeft = 120;
+    });
+    await expect
+      .poll(() =>
+        inputNameCell.evaluate(
+          (cell) => getComputedStyle(cell, '::before').display,
+        ),
+      )
+      .toBe('block');
+    await expect
+      .poll(() =>
+        inputNameCell.evaluate(
+          (cell) => getComputedStyle(cell, '::before').width,
+        ),
+      )
+      .toBe('13px');
+    await inputGridScroll.evaluate((grid) => {
+      grid.closest('.schedule-grid-scroll')!.scrollLeft = 0;
+    });
+    await expect(
+      page.getByRole('button', { name: /Penny Prn,/ }),
+    ).toHaveCount(0);
+
+    await page.locator('.input-grid tbody tr').first().hover();
+    await expect
+      .poll(() =>
+        page
+          .locator('.input-grid tbody tr')
+          .first()
+          .locator('.schedule-cell')
+          .first()
+          .evaluate((cell) => getComputedStyle(cell).backgroundColor),
+      )
+      .toBe('rgb(224, 242, 240)');
+
+    const ptoCell = page.getByRole('button', {
+      name: /Ada Nurse,/,
+    }).first();
+    const ptoLabel = await ptoCell.getAttribute('aria-label');
+    await ptoCell.click();
+    await expect(ptoCell).toHaveAttribute('aria-pressed', 'true');
+    await page.waitForTimeout(600);
+    await page.getByRole('link', { name: 'Schedules' }).click();
+    await page.getByRole('button', { name: 'Resume schedule draft' }).click();
+    const resumedPtoCell = page.getByRole('button', {
+      name: ptoLabel!.replace('not selected', 'selected'),
+    });
+    await expect(resumedPtoCell).toHaveAttribute('aria-pressed', 'true');
+    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await expect(page.getByRole('heading', { name: /PRN working days/ })).toBeVisible();
+    const prnCell = page.getByRole('button', { name: /Penny Prn,/ }).first();
+    await prnCell.click();
+    await expect(prnCell).toHaveClass(/schedule-cell-prn/);
+    await page.getByRole('button', { name: 'Generate', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Review & overrides' }),
+    ).toBeVisible();
+    const reviewPtoCell = page.getByRole('button', { name: /Ada Nurse, .*: PTO/ });
+    await expect(reviewPtoCell).toBeVisible();
+    const prnReviewCell = page.getByRole('button', { name: /Penny Prn, .*: Working/ }).first();
+    await expect(prnReviewCell).toBeDisabled();
+    await expect(page.getByLabel('PRN').first()).toHaveAttribute('title', 'PRN');
+
+    await page.setViewportSize({ width: 900, height: 700 });
+    await expect(page.getByRole('link', { name: 'Settings' })).toBeVisible();
+    await expect
+      .poll(() =>
+        page.locator('.review-grid-scroll').evaluate(
+          (element) => element.scrollWidth > element.clientWidth,
+        ),
+      )
+      .toBe(true);
+    await expect
+      .poll(() =>
+        page
+          .locator('.review-grid .schedule-name-cell')
+          .first()
+          .evaluate(
+            (cell) => getComputedStyle(cell, '::after').display,
+          ),
+      )
+      .toBe('none');
+    await page.locator('.review-grid-scroll').evaluate((element) => {
+      element.scrollLeft = 120;
+    });
+    await expect
+      .poll(() =>
+        page
+          .locator('.review-grid .schedule-name-cell')
+          .first()
+          .evaluate(
+            (cell) => getComputedStyle(cell, '::after').display,
+          ),
+      )
+      .toBe('block');
+    await expect
+      .poll(() =>
+        page
+          .locator('.review-grid .schedule-name-cell')
+          .first()
+          .evaluate((cell) => {
+            const container = cell.closest('.schedule-grid-scroll')!;
+            return Math.round(cell.getBoundingClientRect().left) -
+              Math.round(container.getBoundingClientRect().left);
+          }),
+      )
+      .toBe(13);
+    await expect
+      .poll(() =>
+        page.getByTestId('navbar').evaluate(
+          (element) => element.getBoundingClientRect().width,
+        ),
+      )
+      .toBeLessThan(80);
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Confirm schedule' }),
+    ).toBeVisible();
+    await page.getByRole('dialog').locator('.toggle').click();
+    await expect(
+      page.getByRole('switch', { name: 'Acknowledge warnings' }),
+    ).toBeChecked();
+    await page
+      .getByRole('button', { name: 'Confirm schedule', exact: true })
+      .click();
+
+    await expect(page.getByRole('heading', { name: 'Schedules' })).toBeVisible();
+    await expect(page.getByText('Confirmed', { exact: true })).toBeVisible();
+    await expect(page.locator('.recent-confirmation')).toBeVisible();
   } finally {
     await app.close();
     await rm(userDataPath, { recursive: true, force: true });

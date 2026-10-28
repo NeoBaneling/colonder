@@ -8,6 +8,8 @@ type DialogProps = {
   title?: ReactNode;
   cancelLabel?: string;
   confirmLabel?: string;
+  confirmDisabled?: boolean;
+  confirmVariant?: 'primary' | 'danger';
 };
 
 export const Dialog = ({
@@ -17,6 +19,8 @@ export const Dialog = ({
   title,
   cancelLabel = 'Cancel',
   confirmLabel = 'Confirm',
+  confirmDisabled = false,
+  confirmVariant = 'primary',
   children,
 }: PropsWithChildren<DialogProps>) => {
   const titleId = useId();
@@ -52,7 +56,7 @@ export const Dialog = ({
             {title}
           </h1>
         )}
-        <div className="font-body text-base leading-relaxed text-grey-900 sm:text-xl">
+        <div className="font-sans text-base leading-relaxed text-grey-900 sm:text-xl">
           {children}
         </div>
         {(onCancel || onConfirm) && (
@@ -70,8 +74,14 @@ export const Dialog = ({
             {onConfirm && (
               <Button
                 type="button"
+                variant="filled"
+                disabled={confirmDisabled}
                 onClick={onConfirm}
-                className="min-h-12 rounded-xl bg-orange px-6 text-lg font-bold text-white hover:bg-cherry-600!"
+                className={`min-h-12 rounded-xl px-6 text-lg font-bold ${
+                  confirmVariant === 'danger'
+                    ? 'bg-orange text-white hover:bg-cherry-600! active:bg-cherry-600'
+                    : 'bg-mint-600 text-white hover:bg-mint-300 active:bg-mint-400'
+                }`}
               >
                 {confirmLabel}
               </Button>

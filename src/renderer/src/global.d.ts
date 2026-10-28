@@ -1,6 +1,11 @@
 /// <reference types="vite-plugin-svgr/client" />
 
-import type { Settings, Staff } from '@app/types'
+import type {
+  ScheduleSegment,
+  SegmentState,
+  Settings,
+  Staff,
+} from '@app/types'
 
 declare global {
   interface Window {
@@ -14,6 +19,13 @@ declare global {
     settings: {
       get: () => Promise<Settings>
       save: (settings: Settings) => Promise<Settings>
+    }
+    segments: {
+      list: () => Promise<ScheduleSegment[]>
+      create: (state: SegmentState) => Promise<ScheduleSegment>
+      saveDraft: (id: number, state: SegmentState) => Promise<ScheduleSegment>
+      confirm: (id: number, state: SegmentState) => Promise<ScheduleSegment>
+      deleteDraft: (id: number) => Promise<boolean>
     }
   }
 }
