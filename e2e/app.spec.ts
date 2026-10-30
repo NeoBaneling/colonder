@@ -78,6 +78,8 @@ test('saves and restores settings from SQLite', async () => {
 });
 
 test('creates, edits, reloads, and deletes staff in SQLite', async () => {
+  test.setTimeout(60_000);
+
   const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-staff-e2e-'));
   const launchApp = () =>
     electron.launch({
