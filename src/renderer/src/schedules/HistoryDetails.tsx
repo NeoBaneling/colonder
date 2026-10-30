@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router';
 import { Emp, Role, type ScheduleSegment, type WeeklySchedule } from '@app/types';
 import { IconButton } from '../inputs/IconButton';
 import { PageContent } from '../layout/PageContent';
@@ -54,6 +54,7 @@ const buildWeeklyGroups = (segment: ScheduleSegment) => {
 };
 
 export const HistoryDetailsPage = () => {
+  const location = useLocation();
   const navigate = useNavigate();
   const { scheduleId } = useParams();
   const [segment, setSegment] = useState<ScheduleSegment | null>(null);
@@ -62,6 +63,19 @@ export const HistoryDetailsPage = () => {
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [isScrolled, setIsScrolled] = useState(false);
   const [hoveredWeek, setHoveredWeek] = useState<number | null>(null);
+  const dashboardActionHandled = useRef(false);
+  const navigationState =
+    typeof location.state === 'object' && location.state !== null
+      ? location.state
+      : null;
+  const dashboardAction =
+    navigationState && 'dashboardAction' in navigationState
+      ? navigationState.dashboardAction
+      : null;
+  const dashboardFilename =
+    navigationState && 'filename' in navigationState
+      ? navigationState.filename
+      : null;
 
   useEffect(() => {
     let active = true;
@@ -69,13 +83,15 @@ export const HistoryDetailsPage = () => {
       .then(async (savedSegments) => {
         if (!active) return;
         const match = savedSegments.find((item) => item.id === Number(scheduleId));
-        setSegment(match ?? null);
         if (!match) {
           setLoadError('This schedule could not be found.');
           return;
         }
         const savedWeeks = await window.weeklySchedules.listForSegment(match.id);
-        if (active) setWeeklySchedules(savedWeeks);
+        if (active) {
+          setWeeklySchedules(savedWeeks);
+          setSegment(match);
+        }
       })
       .catch((error: unknown) => {
         if (active) {
@@ -168,12 +184,12 @@ export const HistoryDetailsPage = () => {
     }
     return totals;
   }, [allDates, segment]);
-  const downloadSchedule = async () => {
+  const downloadSchedule = async (filename?: string) => {
     if (!segment) return;
     setDownloadError(null);
     try {
       await window.schedules.downloadPdf(
-        `Schedule ${segment.startDate} - ${segment.endDate}.pdf`,
+        filename ?? `Schedule ${segment.startDate} - ${segment.endDate}.pdf`,
       );
     } catch (error: unknown) {
       setDownloadError(
@@ -181,6 +197,19 @@ export const HistoryDetailsPage = () => {
       );
     }
   };
+
+  useEffect(() => {
+    if (!segment || dashboardActionHandled.current) return;
+    if (dashboardAction !== 'print' && dashboardAction !== 'download') return;
+    dashboardActionHandled.current = true;
+    if (dashboardAction === 'print') {
+      window.print();
+    } else {
+      void downloadSchedule(
+        typeof dashboardFilename === 'string' ? dashboardFilename : undefined,
+      );
+    }
+  }, [dashboardAction, dashboardFilename, segment]);
 
   const nurseRows = rows.filter(
     (row) => row.employment !== Emp.PRN && row.role === Role.Nurse,

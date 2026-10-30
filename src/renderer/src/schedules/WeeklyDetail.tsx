@@ -1,11 +1,12 @@
 import {
   useEffect,
   useMemo,
+  useRef,
   useState,
   type DragEvent,
   type MouseEvent,
 } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { useLocation, useNavigate, useParams } from 'react-router';
 import { Dept, type ScheduleSegment, type WeeklyAssignment, type WeeklySchedule } from '@app/types';
 import { Button } from '../inputs/Button';
 import { PageContent } from '../layout/PageContent';
@@ -68,6 +69,7 @@ const departmentRows = (segment: ScheduleSegment) => [
 ];
 
 export const WeeklyDetailPage = () => {
+  const location = useLocation();
   const navigate = useNavigate();
   const { scheduleId, weekStart } = useParams();
   const [segment, setSegment] = useState<ScheduleSegment | null>(null);
@@ -81,6 +83,19 @@ export const WeeklyDetailPage = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const dashboardActionHandled = useRef(false);
+  const navigationState =
+    typeof location.state === 'object' && location.state !== null
+      ? location.state
+      : null;
+  const dashboardAction =
+    navigationState && 'dashboardAction' in navigationState
+      ? navigationState.dashboardAction
+      : null;
+  const dashboardFilename =
+    navigationState && 'filename' in navigationState
+      ? navigationState.filename
+      : null;
 
   useEffect(() => {
     let active = true;
@@ -280,12 +295,12 @@ export const WeeklyDetailPage = () => {
     }
   };
 
-  const downloadSchedule = async () => {
+  const downloadSchedule = async (filename?: string) => {
     if (!currentWeek) return;
     setError(null);
     try {
       await window.schedules.downloadPdf(
-        `Weekly schedule ${currentWeek.start} - ${currentWeek.end}.pdf`,
+        filename ?? `Weekly schedule ${currentWeek.start} - ${currentWeek.end}.pdf`,
       );
     } catch (downloadError: unknown) {
       setError(
@@ -295,6 +310,21 @@ export const WeeklyDetailPage = () => {
       );
     }
   };
+
+  useEffect(() => {
+    if (isLoading || !segment || !currentWeek || dashboardActionHandled.current) {
+      return;
+    }
+    if (dashboardAction !== 'print' && dashboardAction !== 'download') return;
+    dashboardActionHandled.current = true;
+    if (dashboardAction === 'print') {
+      window.print();
+    } else {
+      void downloadSchedule(
+        typeof dashboardFilename === 'string' ? dashboardFilename : undefined,
+      );
+    }
+  }, [currentWeek, dashboardAction, dashboardFilename, isLoading, segment]);
 
   return (
     <PageContent

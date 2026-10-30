@@ -399,3 +399,295 @@ test('creates and confirms a six-week schedule', async () => {
     await rm(userDataPath, { recursive: true, force: true });
   }
 });
+
+test('shows current schedules on the dashboard and opens both detail views', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-dashboard-e2e-'));
+  const app = await electron.launch({
+    args: ['.'],
+    env: {
+      ...process.env,
+      COLONDER_USER_DATA: userDataPath,
+      COLONDER_E2E_HEADLESS: '1',
+    },
+  });
+
+  try {
+    const page = await app.firstWindow();
+    await page.evaluate(async () => {
+      const todayDate = new Date();
+      const toIso = (value: Date) =>
+        `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+      const start = new Date(todayDate);
+      start.setDate(start.getDate() - ((start.getDay() + 6) % 7) - 14);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 41);
+      const today = toIso(todayDate);
+      const [person, settings] = await Promise.all([
+        window.staff.create({
+          firstName: 'Ada',
+          lastName: 'Nurse',
+          title: 'RN',
+          role: 0,
+          employment: 0,
+          departments: [0],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
+        window.settings.get(),
+      ]);
+      const state = {
+        step: 'review' as const,
+        startDate: toIso(start),
+        endDate: toIso(end),
+        ptoDates: [],
+        prnDates: [],
+        shifts: [
+          {
+            staffId: person.id,
+            date: today,
+            kind: 'work' as const,
+            countsTowardTargets: true,
+          },
+        ],
+        onCall: [],
+        staffSnapshot: [person],
+        settingsSnapshot: settings,
+        seed: 1,
+        hasManualEdits: false,
+      };
+      const draft = await window.segments.create(state);
+      await window.segments.confirm(draft.id, state);
+    });
+
+    await page.reload();
+    await expect(
+      page.getByRole('heading', { name: /Good (morning|afternoon|evening)/ }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('region', { name: 'Current six-week schedule' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('region', { name: 'This week schedule' }),
+    ).toBeVisible();
+    await expect(
+      page.getByText('Today: 1 nurses and 0 techs. First start 7:00 AM.'),
+    ).toBeVisible();
+
+    await page
+      .getByRole('button', { name: 'Open six-week schedule details' })
+      .click();
+    await expect(page.getByRole('button', { name: 'Print schedule' })).toBeVisible();
+
+    await page.getByRole('link', { name: 'Home' }).click();
+    await page
+      .getByRole('button', { name: 'Open weekly schedule details' })
+      .click();
+    await expect(
+      page.getByRole('heading', { name: 'Weekly schedule' }),
+    ).toBeVisible();
+  } finally {
+    await app.close();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test('prompts users with no staff to add their first staff member', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-empty-dashboard-e2e-'));
+  const app = await electron.launch({
+    args: ['.'],
+    env: {
+      ...process.env,
+      COLONDER_USER_DATA: userDataPath,
+      COLONDER_E2E_HEADLESS: '1',
+    },
+  });
+
+  try {
+    const page = await app.firstWindow();
+    await expect(
+      page.getByRole('heading', { name: /Good (morning|afternoon|evening)/ }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Let’s meet the team' }),
+    ).toBeVisible();
+    await expect(
+      page.getByText('Add your staff and Colonder can start building schedules.'),
+    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Up next' })).toHaveCount(0);
+    await expect(
+      page.getByRole('heading', { name: 'Current schedules' }),
+    ).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Add staff' }).click();
+    await expect(page.getByRole('heading', { name: 'Add Staff' })).toBeVisible();
+    await expect(page.getByLabel('First name')).toBeVisible();
+    await expect(page.getByLabel('Last name')).toBeVisible();
+  } finally {
+    await app.close();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test('offers six-week generation when the next schedule is due', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-next-six-week-e2e-'));
+  const app = await electron.launch({
+    args: ['.'],
+    env: {
+      ...process.env,
+      COLONDER_USER_DATA: userDataPath,
+      COLONDER_E2E_HEADLESS: '1',
+    },
+  });
+
+  try {
+    const page = await app.firstWindow();
+    await page.clock.install({ time: new Date('2026-10-21T12:00:00') });
+    await page.evaluate(async () => {
+      const [person, settings] = await Promise.all([
+        window.staff.create({
+          firstName: 'Ada',
+          lastName: 'Nurse',
+          title: 'RN',
+          role: 0,
+          employment: 0,
+          departments: [0],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
+        window.settings.get(),
+      ]);
+      const state = {
+        step: 'review' as const,
+        startDate: '2026-09-12',
+        endDate: '2026-10-23',
+        ptoDates: [],
+        prnDates: [],
+        shifts: [
+          {
+            staffId: person.id,
+            date: '2026-10-21',
+            kind: 'work' as const,
+            countsTowardTargets: true,
+          },
+        ],
+        onCall: [],
+        staffSnapshot: [person],
+        settingsSnapshot: settings,
+        seed: 1,
+        hasManualEdits: false,
+      };
+      const draft = await window.segments.create(state);
+      await window.segments.confirm(draft.id, state);
+    });
+
+    await page.reload();
+    await expect(
+      page.getByRole('heading', { name: 'Up next' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Create next six-week schedule' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Generate next weekly schedule' }),
+    ).toHaveCount(0);
+
+    await page
+      .getByRole('button', { name: 'Create next six-week schedule' })
+      .click();
+    await expect(
+      page.getByRole('heading', { name: 'Create Schedule' }),
+    ).toBeVisible();
+
+    await page.getByRole('link', { name: 'Home' }).click();
+    await expect(
+      page.getByRole('button', { name: 'Create next six-week schedule' }),
+    ).toHaveCount(0);
+  } finally {
+    await app.close();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test('offers weekly generation only for an unscheduled week in a confirmed schedule', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-next-week-e2e-'));
+  const app = await electron.launch({
+    args: ['.'],
+    env: {
+      ...process.env,
+      COLONDER_USER_DATA: userDataPath,
+      COLONDER_E2E_HEADLESS: '1',
+    },
+  });
+
+  try {
+    const page = await app.firstWindow();
+    await page.clock.install({ time: new Date('2026-10-21T12:00:00') });
+    await page.evaluate(async () => {
+      const [person, settings] = await Promise.all([
+        window.staff.create({
+          firstName: 'Ada',
+          lastName: 'Nurse',
+          title: 'RN',
+          role: 0,
+          employment: 0,
+          departments: [0],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
+        window.settings.get(),
+      ]);
+      const state = {
+        step: 'review' as const,
+        startDate: '2026-10-05',
+        endDate: '2026-11-13',
+        ptoDates: [],
+        prnDates: [],
+        shifts: [
+          {
+            staffId: person.id,
+            date: '2026-10-21',
+            kind: 'work' as const,
+            countsTowardTargets: true,
+          },
+        ],
+        onCall: [],
+        staffSnapshot: [person],
+        settingsSnapshot: settings,
+        seed: 1,
+        hasManualEdits: false,
+      };
+      const draft = await window.segments.create(state);
+      await window.segments.confirm(draft.id, state);
+    });
+
+    await page.reload();
+    await expect(
+      page.getByRole('button', { name: 'Generate next weekly schedule' }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Create next six-week schedule' }),
+    ).toHaveCount(0);
+
+    await page
+      .getByRole('button', { name: 'Generate next weekly schedule' })
+      .click();
+    await expect(
+      page.getByRole('heading', { name: 'Weekly schedule' }),
+    ).toBeVisible();
+    await expect(page.getByLabel('Week of')).toHaveValue('2026-10-26');
+
+    await page.getByRole('link', { name: 'Home' }).click();
+    await expect(
+      page.getByRole('button', { name: 'Generate next weekly schedule' }),
+    ).toHaveCount(0);
+  } finally {
+    await app.close();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});

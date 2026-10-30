@@ -33,13 +33,17 @@ export const Navbar = () => (
     data-testid="navbar"
     className="sticky flex shrink-0 flex-col gap-1 self-start bg-mint-600 w-15 lg:w-48 h-fit lg:h-[calc(100vh-2rem)] p-1.5 lg:py-4 lg:px-3 rounded-full lg:rounded-3xl"
   >
-    <div className="flex flex-row items-center justify-center lg:justify-start gap-2.5 mx-0.5 pb-2">
-      <Logo className="w-10 h-10.5" />
-      <p className="hidden lg:inline text-[17px] font-bold text-white">
-        Colonder
-      </p>
-    </div>
     <nav className="flex flex-col gap-1">
+      <NavLink
+        to="/"
+        aria-label="Home"
+        className="flex flex-row items-center justify-center lg:justify-start gap-2.5 mx-0.5 pb-2"
+      >
+        <Logo className="w-10 h-10.5" />
+        <p className="hidden lg:inline text-[17px] font-bold text-white">
+          Colonder
+        </p>
+      </NavLink>
       <NavLink to="/schedules" aria-label="Schedules" className={linkClassName}>
         {({ isActive }) => (
           <Navitem icon="bi-clock" isActive={isActive}>
