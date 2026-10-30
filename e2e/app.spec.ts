@@ -391,9 +391,15 @@ test('creates and confirms a six-week schedule', async () => {
       .getByRole('button', { name: 'Confirm schedule', exact: true })
       .click();
 
-    await expect(page.getByRole('heading', { name: 'Schedules' })).toBeVisible();
-    await expect(page.getByText('Confirmed', { exact: true })).toBeVisible();
-    await expect(page.locator('.recent-confirmation')).toBeVisible();
+    await expect(
+      page.getByRole('heading', {
+        name: /^\w+ \d{1,2}, \d{4} – \w+ \d{1,2}, \d{4}$/,
+      }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Print schedule' })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Generate weekly schedule' }),
+    ).toHaveCount(6);
   } finally {
     await app.close();
     await rm(userDataPath, { recursive: true, force: true });
