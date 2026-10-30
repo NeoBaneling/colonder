@@ -30,6 +30,9 @@ declare global {
       updateConfirmed: (id: number, state: SegmentState) => Promise<ScheduleSegment>
       deleteDraft: (id: number) => Promise<boolean>
     }
+    schedules: {
+      downloadPdf: (filename: string) => Promise<{ canceled: boolean }>
+    }
     weeklySchedules: {
       listForSegment: (segmentId: number) => Promise<WeeklySchedule[]>
       getOrCreate: (segmentId: number, weekStart: string) => Promise<WeeklySchedule>
@@ -38,7 +41,6 @@ declare global {
         assignments: WeeklyAssignment[],
         confirmed: boolean,
       ) => Promise<WeeklySchedule>
-      downloadPdf: (filename: string) => Promise<{ canceled: boolean }>
     }
   }
 }

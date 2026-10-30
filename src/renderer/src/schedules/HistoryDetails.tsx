@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { Role, type ScheduleSegment, type WeeklySchedule } from '@app/types';
+import { Emp, Role, type ScheduleSegment, type WeeklySchedule } from '@app/types';
 import { IconButton } from '../inputs/IconButton';
 import { PageContent } from '../layout/PageContent';
+import { PrintFooter } from './PrintFooter';
 
 const formatDate = (value: string) =>
   new Intl.DateTimeFormat('en-US', {
@@ -58,6 +59,7 @@ export const HistoryDetailsPage = () => {
   const [segment, setSegment] = useState<ScheduleSegment | null>(null);
   const [weeklySchedules, setWeeklySchedules] = useState<WeeklySchedule[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const [isScrolled, setIsScrolled] = useState(false);
   const [hoveredWeek, setHoveredWeek] = useState<number | null>(null);
 
@@ -89,22 +91,38 @@ export const HistoryDetailsPage = () => {
   }, [scheduleId]);
 
   const rows = useMemo(() => {
-    if (!segment) return [] as Array<{ name: string; status: Record<string, 'W' | 'P' | '–'> }>;
+    if (!segment) return [] as Array<{
+      name: string;
+      role: Role;
+      employment: Emp;
+      status: Record<string, 'W' | 'P' | 'OC' | '–'>;
+    }>;
     const people = [...segment.state.staffSnapshot].sort((a, b) => {
       if (a.lastName !== b.lastName) return a.lastName.localeCompare(b.lastName);
       return a.firstName.localeCompare(b.firstName);
     });
 
     return people.map((person) => {
-      const status: Record<string, 'W' | 'P' | '–'> = {};
+      const status: Record<string, 'W' | 'P' | 'OC' | '–'> = {};
       for (const shift of segment.state.shifts) {
         if (shift.staffId === person.id) {
           if (shift.kind === 'work') status[shift.date] = 'W';
           if (shift.kind === 'pto') status[shift.date] = 'P';
         }
       }
+      for (const key of segment.state.onCall) {
+        const separator = key.indexOf(':');
+        if (
+          separator >= 0 &&
+          key.slice(0, separator) === String(person.id)
+        ) {
+          status[key.slice(separator + 1)] = 'OC';
+        }
+      }
       return {
-        name: `${person.lastName}, ${person.firstName.slice(0, 1)}.`,
+        name: `${person.lastName} ${person.firstName.slice(0, 1)}.`,
+        role: person.role,
+        employment: person.employment,
         status,
       };
     });
@@ -127,6 +145,8 @@ export const HistoryDetailsPage = () => {
     `history-week-group-${weekIndex} ${weekIndex % 2 === 0 ? 'history-week-even' : 'history-week-odd'}${
       hoveredWeek === weekIndex ? ' history-week-hover' : ''
     }`;
+  const printWeekClassName = (weekIndex: number) =>
+    `history-week-group-${weekIndex} ${weekIndex % 2 === 0 ? 'history-week-even' : 'history-week-odd'}`;
 
   const dateTotals = useMemo(() => {
     if (!segment) return new Map<string, { nurses: number; techs: number }>();
@@ -148,6 +168,122 @@ export const HistoryDetailsPage = () => {
     }
     return totals;
   }, [allDates, segment]);
+  const downloadSchedule = async () => {
+    if (!segment) return;
+    setDownloadError(null);
+    try {
+      await window.schedules.downloadPdf(
+        `Schedule ${segment.startDate} - ${segment.endDate}.pdf`,
+      );
+    } catch (error: unknown) {
+      setDownloadError(
+        error instanceof Error ? error.message : 'Unable to download the schedule.',
+      );
+    }
+  };
+
+  const nurseRows = rows.filter(
+    (row) => row.employment !== Emp.PRN && row.role === Role.Nurse,
+  );
+  const prnRows = rows.filter((row) => row.employment === Emp.PRN);
+  const techRows = rows.filter(
+    (row) => row.role === Role.Tech && row.employment !== Emp.PRN,
+  );
+
+  const renderPrintPage = (
+    title: string,
+    sections: Array<{ label: string; rows: typeof rows }>,
+    total: 'nurses' | 'techs',
+    className: string,
+    pageNumber: number,
+  ) => {
+    if (!segment) return null;
+    return (
+      <section className={`schedule-pdf-page ${className}`}>
+      <header className="schedule-pdf-heading">
+        <h2>
+          {formatHeaderDate(segment.startDate)} – {formatHeaderDate(segment.endDate)},{' '}
+          {segment.endDate.slice(0, 4)}
+        </h2>
+        <span>{title}</span>
+      </header>
+      <table className="schedule-pdf-grid">
+        <thead>
+          <tr>
+            <th className="schedule-pdf-name" />
+            {weekGroups.map((group, index) => (
+              <th
+                key={`${group.start}-${group.end}`}
+                colSpan={group.dates.length}
+                className={index % 2 === 0 ? 'schedule-pdf-week-even' : ''}
+              >
+                <span>{group.label}</span>
+                <small>Week {index + 1}</small>
+              </th>
+            ))}
+          </tr>
+          <tr>
+            <th className="schedule-pdf-name" />
+            {allDates.map((date) => (
+              <th
+                key={date}
+                className={printWeekClassName(groupByDate.get(date) ?? 0)}
+              >
+                {new Intl.DateTimeFormat('en-US', {
+                  weekday: 'short',
+                  timeZone: 'UTC',
+                })
+                  .format(new Date(`${date}T00:00:00.000Z`))
+                  .slice(0, 1)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sections.map((section) => (
+            <Fragment key={section.label}>
+              <tr className="schedule-pdf-section" key={`${section.label}-label`}>
+                <th colSpan={allDates.length + 1}>{section.label}</th>
+              </tr>
+              {section.rows.map((row) => (
+                <tr key={row.name}>
+                  <th className="schedule-pdf-name" scope="row">{row.name}</th>
+                  {allDates.map((date) => {
+                    const value = row.status[date] ?? '–';
+                    return (
+                      <td
+                        key={`${row.name}-${date}`}
+                        className={`${printWeekClassName(groupByDate.get(date) ?? 0)} ${
+                          value === 'W'
+                            ? 'schedule-pdf-work'
+                            : value === 'P'
+                              ? 'schedule-pdf-pto'
+                              : ''
+                        }`}
+                      >
+                        {value}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </Fragment>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <th className="schedule-pdf-name" scope="row">Total</th>
+            {allDates.map((date) => (
+              <td key={date}>{dateTotals.get(date)?.[total] ?? 0}</td>
+            ))}
+          </tr>
+        </tfoot>
+      </table>
+      <p className="schedule-pdf-legend">W work · – off · P PTO · OC on-call.</p>
+      <PrintFooter pageNumber={pageNumber} totalPages={2} />
+      </section>
+    );
+  };
 
   if (loadError) {
     return (
@@ -180,7 +316,7 @@ export const HistoryDetailsPage = () => {
           ariaLabel: 'Download schedule',
           icon: 'bi-download',
           variant: 'outlined',
-          onClick: () => undefined,
+          onClick: () => void downloadSchedule(),
         },
         {
           ariaLabel: 'Edit schedule',
@@ -190,7 +326,7 @@ export const HistoryDetailsPage = () => {
         },
       ]}
     >
-      <div className="flex min-w-0 flex-col gap-4">
+      <div className="schedule-detail-screen flex min-w-0 flex-col gap-4">
         <div
           className="schedule-grid-scroll history-grid-scroll"
           data-scrolled={isScrolled}
@@ -311,6 +447,26 @@ export const HistoryDetailsPage = () => {
             </tfoot>
           </table>
         </div>
+      </div>
+      {downloadError && <p role="alert">{downloadError}</p>}
+      <div className="schedule-pdf-pages" aria-hidden="true">
+        {renderPrintPage(
+          'Nurses and PRNs',
+          [
+            { label: 'Nurses', rows: nurseRows },
+            { label: 'PRN', rows: prnRows },
+          ],
+          'nurses',
+          'schedule-pdf-nurses',
+          1,
+        )}
+        {renderPrintPage(
+          'Techs',
+          [{ label: 'Techs', rows: techRows }],
+          'techs',
+          'schedule-pdf-techs',
+          2,
+        )}
       </div>
     </PageContent>
   );

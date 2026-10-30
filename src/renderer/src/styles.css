@@ -35,6 +35,303 @@
   --breakpoint-lg: 62.5rem;
 }
 
+@page {
+  size: letter landscape;
+  margin: 0.45in 0.45in 0.65in;
+}
+
+.schedule-pdf-pages {
+  display: none;
+}
+
+.schedule-print-footer {
+  display: none;
+}
+
+.weekly-pdf-heading {
+  display: none;
+}
+
+@media print {
+  body:has(.schedule-pdf-pages),
+  body:has(.weekly-schedule-grid) {
+    background: #fff !important;
+  }
+
+  body:has(.schedule-pdf-pages) main,
+  body:has(.weekly-schedule-grid) main {
+    height: auto !important;
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  body:has(.schedule-pdf-pages) main > div,
+  body:has(.weekly-schedule-grid) main > div {
+    display: block !important;
+    height: auto !important;
+  }
+
+  body:has(.schedule-pdf-pages) main > div > div,
+  body:has(.weekly-schedule-grid) main > div > div {
+    overflow: visible !important;
+  }
+
+  body:has(.schedule-pdf-pages) main > div > div > div,
+  body:has(.weekly-schedule-grid) main > div > div > div {
+    display: block !important;
+    min-height: 0 !important;
+  }
+
+  body:has(.schedule-pdf-pages) [data-testid='navbar'],
+  body:has(.weekly-schedule-grid) [data-testid='navbar'],
+  body:has(.schedule-pdf-pages) button,
+  body:has(.weekly-schedule-grid) button:not(.weekly-assignment),
+  body:has(.weekly-schedule-grid) select,
+  body:has(.weekly-schedule-grid) label:has(select),
+  body:has(.weekly-schedule-grid) .weekly-editor-backdrop {
+    display: none !important;
+  }
+
+  .schedule-pdf-pages {
+    display: block !important;
+  }
+
+  .schedule-print-footer {
+    display: flex !important;
+    justify-content: space-between;
+    border-top: 1px solid #d5e0e0;
+    margin-top: auto;
+    padding-top: 4px;
+    color: #6b7a7a;
+    font: 9px sans-serif;
+  }
+
+  .schedule-pdf-page {
+    display: flex;
+    min-height: 7.4in;
+    flex-direction: column;
+    box-sizing: border-box;
+  }
+
+  .weekly-print-page {
+    display: flex !important;
+    min-height: 7.4in;
+    flex-direction: column;
+    gap: 0 !important;
+    box-sizing: border-box;
+  }
+
+  .schedule-detail-screen,
+  body:has(.schedule-pdf-pages) [role='alert'],
+  body:has(.schedule-pdf-pages) h1,
+  body:has(.weekly-schedule-grid) h1 {
+    display: none !important;
+  }
+
+  body:has(.weekly-schedule-grid) .weekly-pdf-heading {
+    display: block !important;
+    border-bottom: 2px solid #0b8179;
+    margin: 0 0 0.15in;
+    padding-bottom: 0.08in;
+    color: #1f2937;
+    font: 700 16pt 'Nunito', sans-serif;
+  }
+
+  .schedule-pdf-page {
+    width: 100%;
+    break-after: page;
+    page-break-after: always;
+  }
+
+  .schedule-pdf-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .schedule-pdf-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 2px solid #0b8179;
+    margin-bottom: 0.15in;
+    padding-bottom: 0.08in;
+  }
+
+  .schedule-pdf-heading h2 {
+    margin: 0;
+    color: #1f2937;
+    font: 700 16pt 'Nunito', sans-serif;
+  }
+
+  .schedule-pdf-heading > span {
+    color: #0b5c56;
+    font: 700 9pt 'Nunito', sans-serif;
+  }
+
+  .schedule-pdf-grid {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    border: 1px solid #d5e0e0;
+    color: #1f2937;
+    font: 7pt 'Nunito', sans-serif;
+  }
+
+  .schedule-pdf-grid th,
+  .schedule-pdf-grid td {
+    border: 1px solid #edf2f2;
+    padding: 2px;
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  .schedule-pdf-grid thead th {
+    height: 0.25in;
+    color: #3f4a4a;
+    font-weight: 700;
+  }
+
+  .schedule-pdf-grid thead th.schedule-pdf-week-even {
+    background: #f4f8f8 !important;
+    print-color-adjust: exact;
+  }
+
+  .schedule-pdf-grid .history-week-even {
+    background: #f4f8f8 !important;
+    print-color-adjust: exact;
+  }
+
+  .schedule-pdf-grid thead th:not(.schedule-pdf-name) span,
+  .schedule-pdf-grid thead th:not(.schedule-pdf-name) small {
+    display: block;
+    text-align: left;
+  }
+
+  .schedule-pdf-grid thead th:not(.schedule-pdf-name) small {
+    font-size: 6pt;
+    font-weight: 400;
+  }
+
+  .schedule-pdf-grid .schedule-pdf-name {
+    width: 1.1in;
+    min-width: 1.1in;
+    text-align: left;
+    font-weight: 600;
+  }
+
+  .schedule-pdf-grid tbody th,
+  .schedule-pdf-grid tbody td {
+    height: 0.19in;
+  }
+
+  .schedule-pdf-grid .schedule-pdf-section th {
+    border: 0;
+    padding: 4px 2px 1px;
+    color: #0b5c56;
+    text-align: left;
+  }
+
+  .schedule-pdf-grid tbody td.schedule-pdf-work {
+    background: #e0f2f0 !important;
+    color: #0b5c56;
+    font-weight: 700;
+    print-color-adjust: exact;
+  }
+
+  .schedule-pdf-grid tbody td.schedule-pdf-pto {
+    background: #fde4ea !important;
+    color: #912018;
+    font-weight: 700;
+    print-color-adjust: exact;
+  }
+
+  .schedule-pdf-grid tfoot th,
+  .schedule-pdf-grid tfoot td {
+    border-top: 2px solid #9aa8a8;
+    font-weight: 700;
+  }
+
+  .schedule-pdf-legend {
+    margin-top: 0.1in;
+    color: #6b7a7a;
+    font: 7pt 'Nunito', sans-serif;
+  }
+
+  body:has(.weekly-schedule-grid) .weekly-schedule-scroll {
+    flex: 0 0 auto;
+    overflow: visible !important;
+    border: 0 !important;
+    padding: 0 !important;
+  }
+
+  body:has(.weekly-schedule-grid) .weekly-schedule-grid {
+    width: 100%;
+    min-width: 0 !important;
+    font-size: 0.8rem;
+  }
+
+  body:has(.weekly-schedule-grid) .weekly-schedule-grid th,
+  body:has(.weekly-schedule-grid) .weekly-schedule-grid td {
+    padding: 0.2rem;
+  }
+
+  body:has(.weekly-schedule-grid) .weekly-schedule-grid thead th {
+    height: auto;
+  }
+
+  body:has(.weekly-schedule-grid) .weekly-date-label {
+    margin-top: 0;
+    font-size: 0.65rem;
+  }
+
+  body:has(.weekly-schedule-grid) .weekly-assignment-list {
+    min-height: 0;
+    gap: 0;
+  }
+
+  body:has(.weekly-schedule-grid) .weekly-assignment {
+    min-height: 0;
+    gap: 0.15rem;
+    padding-top: 0.1rem;
+    padding-bottom: 0.1rem;
+    font-size: 0.65rem;
+  }
+
+  body:has(.weekly-schedule-grid) .weekly-assignment-time {
+    font-size: 0.6rem;
+  }
+
+  body:has(.weekly-schedule-grid) .weekly-print-page > [role='alert'],
+  body:has(.weekly-schedule-grid) .weekly-print-page > [role='status'],
+  body:has(.weekly-schedule-grid) .weekly-print-actions {
+    display: none !important;
+  }
+
+  body:has(.weekly-schedule-grid) .weekly-day-shaded {
+    background: #f4f8f8 !important;
+    print-color-adjust: exact;
+  }
+
+  body:has(.weekly-schedule-grid) .weekly-assignment {
+    border: 0;
+    background: transparent;
+    padding-right: 0;
+    padding-left: 0;
+    cursor: default;
+  }
+
+  body:has(.weekly-schedule-grid) .weekly-marker {
+    display: none !important;
+  }
+
+  .schedule-pdf-pages .history-week-hover,
+  .schedule-pdf-pages .history-week-hover .schedule-cell,
+  .schedule-pdf-pages .history-week-hover .schedule-total {
+    background-color: unset !important;
+    color: inherit !important;
+  }
+}
+
 @layer base {
   body {
     background-color: var(--color-mint-50);

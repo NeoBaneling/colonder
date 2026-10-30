@@ -10,6 +10,7 @@ import { Dept, type ScheduleSegment, type WeeklyAssignment, type WeeklySchedule 
 import { Button } from '../inputs/Button';
 import { PageContent } from '../layout/PageContent';
 import { getSegmentWeeks } from '../../../weekly';
+import { PrintFooter } from './PrintFooter';
 
 type SelectedAssignment = {
   key: string;
@@ -283,7 +284,7 @@ export const WeeklyDetailPage = () => {
     if (!currentWeek) return;
     setError(null);
     try {
-      await window.weeklySchedules.downloadPdf(
+      await window.schedules.downloadPdf(
         `Weekly schedule ${currentWeek.start} - ${currentWeek.end}.pdf`,
       );
     } catch (downloadError: unknown) {
@@ -319,7 +320,11 @@ export const WeeklyDetailPage = () => {
       ) : error && !segment ? (
         <p role="alert">{error}</p>
       ) : segment && currentWeek ? (
-        <div className="flex min-w-0 flex-col gap-4">
+        <div className="weekly-print-page flex min-w-0 flex-col gap-4">
+          <h2 className="weekly-pdf-heading">
+            Week of {dateLabel(currentWeek.start)} – {dateLabel(currentWeek.end)},{' '}
+            {currentWeek.end.slice(0, 4)}
+          </h2>
           <label className="flex items-center gap-2 text-sm font-semibold text-grey-900">
             Week of
             <select
@@ -343,8 +348,12 @@ export const WeeklyDetailPage = () => {
               <thead>
                 <tr>
                   <th aria-hidden="true" />
-                  {currentWeek.dates.map((date) => (
-                    <th key={date} scope="col">
+                  {currentWeek.dates.map((date, index) => (
+                    <th
+                      key={date}
+                      scope="col"
+                      className={index % 2 === 1 ? 'weekly-day-shaded' : ''}
+                    >
                       <span>{weekdayLabel(date)}</span>
                       <span className="weekly-date-label">{dateLabel(date)}</span>
                     </th>
@@ -358,17 +367,18 @@ export const WeeklyDetailPage = () => {
                     className={department.sectionEnd ? 'weekly-section-divider' : ''}
                   >
                     <th scope="row">{department.label}</th>
-                    {currentWeek.dates.map((date) => {
+                    {currentWeek.dates.map((date, index) => {
                       const dayAssignments =
                         groupedAssignments.get(`${department.key}:${date}`) ?? [];
                       return (
                         <td
                           key={date}
-                          className={
+                          className={[
+                            index % 2 === 1 ? 'weekly-day-shaded' : '',
                             dropTargetKey === `${department.key}:${date}`
                               ? 'weekly-drop-target'
-                              : ''
-                          }
+                              : '',
+                          ].filter(Boolean).join(' ')}
                           onDragOver={(event) => {
                             if (
                               canDropAssignment(
@@ -454,11 +464,12 @@ export const WeeklyDetailPage = () => {
 
           {error && <p role="alert">{error}</p>}
           {notice && <p role="status">{notice}</p>}
-          <div className="flex justify-end">
+          <div className="weekly-print-actions flex justify-end">
             <Button onClick={() => void confirmSchedule()} disabled={isSaving}>
               {isSaving ? 'Saving…' : 'Confirm'}
             </Button>
           </div>
+          <PrintFooter pageNumber={1} totalPages={1} />
         </div>
       ) : (
         <p role="alert">{error ?? 'This weekly schedule could not be found.'}</p>

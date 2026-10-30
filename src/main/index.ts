@@ -850,7 +850,7 @@ app.whenReady().then(() => {
     },
   );
   ipcMain.handle(
-    'weekly-schedules:download-pdf',
+    'schedules:download-pdf',
     async (event, filename: string): Promise<{ canceled: boolean }> => {
       if (typeof filename !== 'string' || filename.trim().length === 0) {
         throw new TypeError('A PDF filename is required.');
@@ -859,7 +859,7 @@ app.whenReady().then(() => {
       if (!window) throw new Error('The application window is unavailable.');
       const safeName = basename(filename).replace(/[^a-zA-Z0-9._ -]/g, '_');
       const { canceled, filePath } = await dialog.showSaveDialog(window, {
-        title: 'Download weekly schedule',
+        title: 'Download schedule',
         defaultPath: safeName.endsWith('.pdf') ? safeName : `${safeName}.pdf`,
         filters: [{ name: 'PDF', extensions: ['pdf'] }],
       });
@@ -867,6 +867,10 @@ app.whenReady().then(() => {
       const pdf = await window.webContents.printToPDF({
         printBackground: true,
         landscape: true,
+        preferCSSPageSize: true,
+        displayHeaderFooter: true,
+        headerTemplate: '<div></div>',
+        footerTemplate: '<div></div>',
       });
       await writeFile(filePath, pdf);
       return { canceled: false };

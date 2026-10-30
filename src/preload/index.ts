@@ -50,6 +50,11 @@ contextBridge.exposeInMainWorld('segments', {
     ipcRenderer.invoke('segments:delete-draft', id),
 });
 
+contextBridge.exposeInMainWorld('schedules', {
+  downloadPdf: (filename: string): Promise<{ canceled: boolean }> =>
+    ipcRenderer.invoke('schedules:download-pdf', filename),
+});
+
 contextBridge.exposeInMainWorld('weeklySchedules', {
   listForSegment: (segmentId: number): Promise<WeeklySchedule[]> =>
     ipcRenderer.invoke('weekly-schedules:list', segmentId),
@@ -61,6 +66,4 @@ contextBridge.exposeInMainWorld('weeklySchedules', {
     confirmed: boolean,
   ): Promise<WeeklySchedule> =>
     ipcRenderer.invoke('weekly-schedules:save', id, assignments, confirmed),
-  downloadPdf: (filename: string): Promise<{ canceled: boolean }> =>
-    ipcRenderer.invoke('weekly-schedules:download-pdf', filename),
 });
