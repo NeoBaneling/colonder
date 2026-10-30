@@ -7,5 +7,7 @@ export default defineConfig({
   timeout: 30_000,
   use: {
     headless: true,
+    screenshot: 'only-on-failure',
+    trace: 'retain-on-failure',
   },
 });
