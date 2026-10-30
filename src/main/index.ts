@@ -1,6 +1,7 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import Database from 'better-sqlite3';
-import { join } from 'node:path';
+import { writeFile } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import {
   Dept,
   DEFAULT_SETTINGS,
@@ -11,7 +12,14 @@ import {
   type SegmentState,
   type Settings,
   type Staff,
+  type WeeklyAssignment,
+  type WeeklySchedule,
 } from '@app/types';
+import {
+  generateWeeklyAssignments,
+  getChangedWeekStarts,
+  getSegmentWeeks,
+} from '../weekly';
 
 let database: Database.Database;
 
@@ -35,6 +43,14 @@ type SegmentRow = {
   status: 'draft' | 'confirmed';
   createdAt: string;
   state: string;
+};
+
+type WeeklyScheduleRow = {
+  id: number;
+  segmentId: number;
+  weekStart: string;
+  confirmed: number;
+  assignments: string;
 };
 
 const isISODate = (value: unknown): value is string =>
@@ -185,6 +201,77 @@ const mapSegmentRow = (row: SegmentRow): ScheduleSegment => {
     status: row.status,
     createdAt: row.createdAt,
     state,
+  };
+};
+
+function assertValidWeeklyAssignments(
+  value: unknown,
+  segment: ScheduleSegment,
+  dates: string[],
+): asserts value is WeeklyAssignment[] {
+  if (!Array.isArray(value)) {
+    throw new TypeError('Invalid weekly schedule assignments.');
+  }
+  const allowedDates = new Set(dates);
+  const staffById = new Map(
+    segment.state.staffSnapshot.map((person) => [person.id, person]),
+  );
+  const seen = new Set<string>();
+
+  for (const assignment of value) {
+    if (typeof assignment !== 'object' || assignment === null) {
+      throw new TypeError('Invalid weekly schedule assignment.');
+    }
+    const item = assignment as Record<string, unknown>;
+    const staffer = staffById.get(Number(item.staffId));
+    const validRoom =
+      item.department === Dept.PROC
+        ? Number.isSafeInteger(item.room) &&
+          Number(item.room) >= 1 &&
+          Number(item.room) <= segment.state.settingsSnapshot.procRooms
+        : item.room === null;
+    const key = `${String(item.staffId)}:${String(item.date)}`;
+
+    if (
+      !staffer ||
+      typeof item.staffId !== 'number' ||
+      !Number.isSafeInteger(item.staffId) ||
+      !allowedDates.has(String(item.date)) ||
+      !segment.state.shifts.some(
+        (shift) =>
+          shift.staffId === item.staffId &&
+          shift.date === item.date &&
+          shift.kind === 'work',
+      ) ||
+      !isDepartment(item.department) ||
+      !staffer.departments.includes(item.department) ||
+      !validRoom ||
+      typeof item.startTime !== 'string' ||
+      !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(item.startTime) ||
+      seen.has(key)
+    ) {
+      throw new TypeError('Invalid weekly schedule assignment.');
+    }
+    seen.add(key);
+  }
+}
+
+const mapWeeklyScheduleRow = (
+  row: WeeklyScheduleRow,
+  segment: ScheduleSegment,
+): WeeklySchedule => {
+  const assignments: unknown = JSON.parse(row.assignments);
+  const week = getSegmentWeeks(segment).find(
+    ({ start }) => start === row.weekStart,
+  );
+  if (!week) throw new Error('Stored weekly schedule is outside its segment.');
+  assertValidWeeklyAssignments(assignments, segment, week.dates);
+  return {
+    id: row.id,
+    segmentId: row.segmentId,
+    weekStart: row.weekStart,
+    confirmed: Boolean(row.confirmed),
+    assignments,
   };
 };
 
@@ -369,6 +456,16 @@ app.whenReady().then(() => {
       state TEXT NOT NULL
     )
   `);
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS weekly_schedule (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      segment_id INTEGER NOT NULL REFERENCES schedule_segment(id) ON DELETE CASCADE,
+      week_start TEXT NOT NULL,
+      confirmed INTEGER NOT NULL DEFAULT 0 CHECK (confirmed IN (0, 1)),
+      assignments TEXT NOT NULL,
+      UNIQUE (segment_id, week_start)
+    )
+  `);
   database
     .prepare(
       `INSERT OR IGNORE INTO settings
@@ -543,6 +640,59 @@ app.whenReady().then(() => {
       return saved;
     },
   );
+  ipcMain.handle(
+    'segments:update-confirmed',
+    (_event, id: number, state: unknown): ScheduleSegment => {
+      if (!Number.isSafeInteger(id) || id < 1) {
+        throw new TypeError('Invalid schedule ID.');
+      }
+      assertValidSegmentState(state);
+      const updateSegment = database.transaction(() => {
+        const existing = listSegments().find((segment) => segment.id === id);
+        if (!existing || existing.status !== 'confirmed') {
+          throw new Error('This confirmed schedule could not be found.');
+        }
+        if (
+          state.startDate !== existing.startDate ||
+          state.endDate !== existing.endDate
+        ) {
+          throw new Error('Editing a schedule cannot change its date range.');
+        }
+
+        const updatedState: SegmentState = {
+          ...existing.state,
+          step: 'review',
+          shifts: state.shifts,
+          onCall: state.onCall,
+          hasManualEdits: state.hasManualEdits,
+        };
+        const changedWeekStarts = getChangedWeekStarts(existing, updatedState);
+        if (changedWeekStarts.length > 0) {
+          const deleteWeeklySchedule = database.prepare(
+            `DELETE FROM weekly_schedule
+             WHERE segment_id = ? AND week_start = ?`,
+          );
+          for (const weekStart of changedWeekStarts) {
+            deleteWeeklySchedule.run(id, weekStart);
+          }
+        }
+
+        const result = database
+          .prepare(
+            `UPDATE schedule_segment SET state = ?
+             WHERE id = ? AND status = 'confirmed'`,
+          )
+          .run(JSON.stringify(updatedState), id);
+        if (result.changes === 0) {
+          throw new Error('Unable to save the edited schedule.');
+        }
+      });
+      updateSegment();
+      const saved = listSegments().find((segment) => segment.id === id);
+      if (!saved) throw new Error('Unable to load the edited schedule.');
+      return saved;
+    },
+  );
   ipcMain.handle('segments:delete-draft', (_event, id: number): boolean => {
     if (!Number.isSafeInteger(id) || id < 1) {
       throw new TypeError('Invalid schedule ID.');
@@ -555,6 +705,173 @@ app.whenReady().then(() => {
         .run(id).changes > 0
     );
   });
+
+  ipcMain.handle(
+    'weekly-schedules:list',
+    (_event, segmentId: number): WeeklySchedule[] => {
+      if (!Number.isSafeInteger(segmentId) || segmentId < 1) {
+        throw new TypeError('Invalid schedule ID.');
+      }
+      const segment = listSegments().find(({ id }) => id === segmentId);
+      if (!segment) throw new Error('This schedule could not be found.');
+      const rows = database
+        .prepare(
+          `SELECT id, segment_id AS segmentId, week_start AS weekStart,
+                  confirmed, assignments
+           FROM weekly_schedule WHERE segment_id = ? ORDER BY week_start`,
+        )
+        .all(segmentId) as WeeklyScheduleRow[];
+      return rows.map((row) => mapWeeklyScheduleRow(row, segment));
+    },
+  );
+  ipcMain.handle(
+    'weekly-schedules:get-or-create',
+    (_event, segmentId: number, weekStart: string): WeeklySchedule => {
+      if (!Number.isSafeInteger(segmentId) || segmentId < 1) {
+        throw new TypeError('Invalid schedule ID.');
+      }
+      if (!isISODate(weekStart)) {
+        throw new TypeError('Invalid week start date.');
+      }
+
+      const getOrCreate = database.transaction(() => {
+        const segment = listSegments().find(({ id }) => id === segmentId);
+        if (!segment || segment.status !== 'confirmed') {
+          throw new Error('A confirmed schedule is required to generate a week.');
+        }
+        const week = getSegmentWeeks(segment).find(
+          ({ start }) => start === weekStart,
+        );
+        if (!week) {
+          throw new Error('This week does not belong to the selected schedule.');
+        }
+
+        const existing = database
+          .prepare(
+            `SELECT id, segment_id AS segmentId, week_start AS weekStart,
+                    confirmed, assignments
+             FROM weekly_schedule WHERE segment_id = ? AND week_start = ?`,
+          )
+          .get(segmentId, weekStart) as WeeklyScheduleRow | undefined;
+        if (existing) {
+          if (existing.confirmed) {
+            return mapWeeklyScheduleRow(existing, segment);
+          }
+
+          const assignments = generateWeeklyAssignments(segment, week.dates);
+          database
+            .prepare(
+              `UPDATE weekly_schedule SET assignments = ?
+               WHERE id = ? AND confirmed = 0`,
+            )
+            .run(JSON.stringify(assignments), existing.id);
+          const refreshed = database
+            .prepare(
+              `SELECT id, segment_id AS segmentId, week_start AS weekStart,
+                      confirmed, assignments
+               FROM weekly_schedule WHERE id = ?`,
+            )
+            .get(existing.id) as WeeklyScheduleRow | undefined;
+          if (!refreshed) {
+            throw new Error('Unable to refresh the generated weekly schedule.');
+          }
+          return mapWeeklyScheduleRow(refreshed, segment);
+        }
+
+        const assignments = generateWeeklyAssignments(segment, week.dates);
+        const result = database
+          .prepare(
+            `INSERT INTO weekly_schedule
+               (segment_id, week_start, assignments)
+             VALUES (?, ?, ?)`,
+          )
+          .run(segmentId, weekStart, JSON.stringify(assignments));
+        const saved = database
+          .prepare(
+            `SELECT id, segment_id AS segmentId, week_start AS weekStart,
+                    confirmed, assignments
+             FROM weekly_schedule WHERE id = ?`,
+          )
+          .get(Number(result.lastInsertRowid)) as WeeklyScheduleRow | undefined;
+        if (!saved) throw new Error('Unable to load the generated weekly schedule.');
+        return mapWeeklyScheduleRow(saved, segment);
+      });
+
+      return getOrCreate();
+    },
+  );
+  ipcMain.handle(
+    'weekly-schedules:save',
+    (
+      _event,
+      id: number,
+      assignments: unknown,
+      confirmed: boolean,
+    ): WeeklySchedule => {
+      if (!Number.isSafeInteger(id) || id < 1) {
+        throw new TypeError('Invalid weekly schedule ID.');
+      }
+      if (typeof confirmed !== 'boolean') {
+        throw new TypeError('Invalid weekly schedule confirmation state.');
+      }
+      const row = database
+        .prepare(
+          `SELECT id, segment_id AS segmentId, week_start AS weekStart,
+                  confirmed, assignments
+           FROM weekly_schedule WHERE id = ?`,
+        )
+        .get(id) as WeeklyScheduleRow | undefined;
+      if (!row) throw new Error('This weekly schedule could not be found.');
+      const segment = listSegments().find(({ id: segmentId }) => segmentId === row.segmentId);
+      if (!segment) throw new Error('The parent schedule could not be found.');
+      const week = getSegmentWeeks(segment).find(
+        ({ start }) => start === row.weekStart,
+      );
+      if (!week) throw new Error('This weekly schedule is outside its segment.');
+      assertValidWeeklyAssignments(assignments, segment, week.dates);
+
+      const result = database
+        .prepare(
+          `UPDATE weekly_schedule
+           SET assignments = ?, confirmed = ?
+           WHERE id = ?`,
+        )
+        .run(JSON.stringify(assignments), Number(confirmed), id);
+      if (result.changes === 0) throw new Error('Unable to save the weekly schedule.');
+      const saved = database
+        .prepare(
+          `SELECT id, segment_id AS segmentId, week_start AS weekStart,
+                  confirmed, assignments
+           FROM weekly_schedule WHERE id = ?`,
+        )
+        .get(id) as WeeklyScheduleRow | undefined;
+      if (!saved) throw new Error('Unable to load the saved weekly schedule.');
+      return mapWeeklyScheduleRow(saved, segment);
+    },
+  );
+  ipcMain.handle(
+    'weekly-schedules:download-pdf',
+    async (event, filename: string): Promise<{ canceled: boolean }> => {
+      if (typeof filename !== 'string' || filename.trim().length === 0) {
+        throw new TypeError('A PDF filename is required.');
+      }
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (!window) throw new Error('The application window is unavailable.');
+      const safeName = basename(filename).replace(/[^a-zA-Z0-9._ -]/g, '_');
+      const { canceled, filePath } = await dialog.showSaveDialog(window, {
+        title: 'Download weekly schedule',
+        defaultPath: safeName.endsWith('.pdf') ? safeName : `${safeName}.pdf`,
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      });
+      if (canceled || !filePath) return { canceled: true };
+      const pdf = await window.webContents.printToPDF({
+        printBackground: true,
+        landscape: true,
+      });
+      await writeFile(filePath, pdf);
+      return { canceled: false };
+    },
+  );
 
   createWindow();
 

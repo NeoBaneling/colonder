@@ -4,6 +4,8 @@ import type {
   SegmentState,
   Settings,
   Staff,
+  WeeklyAssignment,
+  WeeklySchedule,
 } from '@app/types';
 
 contextBridge.exposeInMainWorld('staff', {
@@ -39,6 +41,26 @@ contextBridge.exposeInMainWorld('segments', {
     state: SegmentState,
   ): Promise<ScheduleSegment> =>
     ipcRenderer.invoke('segments:confirm', id, state),
+  updateConfirmed: (
+    id: number,
+    state: SegmentState,
+  ): Promise<ScheduleSegment> =>
+    ipcRenderer.invoke('segments:update-confirmed', id, state),
   deleteDraft: (id: number): Promise<boolean> =>
     ipcRenderer.invoke('segments:delete-draft', id),
+});
+
+contextBridge.exposeInMainWorld('weeklySchedules', {
+  listForSegment: (segmentId: number): Promise<WeeklySchedule[]> =>
+    ipcRenderer.invoke('weekly-schedules:list', segmentId),
+  getOrCreate: (segmentId: number, weekStart: string): Promise<WeeklySchedule> =>
+    ipcRenderer.invoke('weekly-schedules:get-or-create', segmentId, weekStart),
+  save: (
+    id: number,
+    assignments: WeeklyAssignment[],
+    confirmed: boolean,
+  ): Promise<WeeklySchedule> =>
+    ipcRenderer.invoke('weekly-schedules:save', id, assignments, confirmed),
+  downloadPdf: (filename: string): Promise<{ canceled: boolean }> =>
+    ipcRenderer.invoke('weekly-schedules:download-pdf', filename),
 });

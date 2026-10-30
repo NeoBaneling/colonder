@@ -1,3 +1,4 @@
+import type { MouseEvent } from 'react';
 import { twMerge } from 'tailwind-merge';
 
 export type IconButtonProps = {
@@ -5,7 +6,7 @@ export type IconButtonProps = {
   className?: string;
   disabled?: boolean;
   icon: string;
-  onClick?: () => void;
+  onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
   title?: string;
   variant: 'filled' | 'outlined';
 };

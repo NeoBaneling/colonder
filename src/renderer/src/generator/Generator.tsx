@@ -5,7 +5,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { useNavigate, useSearchParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import {
   Emp,
   Role,
@@ -247,12 +247,14 @@ const warningLabel = (warning: SegmentWarning) => warning.message;
 const GeneratorPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { scheduleId: editParam } = useParams();
   const draftParam = searchParams.get('draft');
   const [staff, setStaff] = useState<Staff[] | null>(null);
   const [settings, setSettings] = useState<Settings | null>(null);
   const [segments, setSegments] = useState<ScheduleSegment[]>([]);
   const [state, setState] = useState<SegmentState | null>(null);
   const [draftId, setDraftId] = useState<number | null>(null);
+  const [editScheduleId, setEditScheduleId] = useState<number | null>(null);
   const [view, setView] = useState<View>('pto');
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -282,7 +284,20 @@ const GeneratorPage = () => {
         setStaff(activeStaff);
         setSettings(savedSettings);
         setSegments(savedSegments);
-        if (draftParam) {
+        if (editParam) {
+          const schedule = savedSegments.find(
+            (segment) =>
+              segment.id === Number(editParam) &&
+              segment.status === 'confirmed',
+          );
+          if (!schedule) {
+            setLoadError('This confirmed schedule could not be found.');
+          } else {
+            setState({ ...schedule.state, step: 'review' });
+            setEditScheduleId(schedule.id);
+            setView('review');
+          }
+        } else if (draftParam) {
           const draft = savedSegments.find(
             (segment) =>
               segment.id === Number(draftParam) && segment.status === 'draft',
@@ -341,10 +356,10 @@ const GeneratorPage = () => {
     return () => {
       active = false;
     };
-  }, [draftParam]);
+  }, [draftParam, editParam]);
 
   useEffect(() => {
-    if (draftId === null || state === null) return;
+    if (draftId === null || state === null || editScheduleId !== null) return;
     const timeout = window.setTimeout(() => {
       window.segments
         .saveDraft(draftId, state)
@@ -361,7 +376,7 @@ const GeneratorPage = () => {
         });
     }, 500);
     return () => window.clearTimeout(timeout);
-  }, [draftId, state]);
+  }, [draftId, editScheduleId, state]);
 
   const dates = useMemo(
     () =>
@@ -572,16 +587,20 @@ const GeneratorPage = () => {
   }, [redo, undo, view]);
 
   const confirmSchedule = async () => {
-    if (!state || draftId === null || (warnings.length > 0 && !acknowledged)) return;
+    const scheduleId = editScheduleId ?? draftId;
+    if (!state || scheduleId === null || (warnings.length > 0 && !acknowledged)) return;
     setIsWorking(true);
     try {
-      const confirmed = await window.segments.confirm(draftId, state);
+      const confirmed =
+        editScheduleId !== null
+          ? await window.segments.updateConfirmed(editScheduleId, state)
+          : await window.segments.confirm(scheduleId, state);
       setSegments((current) => [
         confirmed,
         ...current.filter((segment) => segment.id !== confirmed.id),
       ]);
       setShowConfirm(false);
-      navigate('/schedules', { state: { highlightedId: confirmed.id } });
+      navigate(`/schedules/${confirmed.id}`);
     } catch (reason) {
       setSavingError(
         reason instanceof Error ? reason.message : 'Unable to confirm this schedule.',
@@ -624,9 +643,11 @@ const GeneratorPage = () => {
   const activeStep: SegmentStep =
     view === 'pto' || view === 'prn' ? view : 'review';
   const title =
-    view === 'review' || view === 'generating'
-      ? 'Review & overrides'
-      : 'Create Schedule';
+    editScheduleId !== null
+      ? 'Edit schedule'
+      : view === 'review' || view === 'generating'
+        ? 'Review & overrides'
+        : 'Create Schedule';
   const displayedStart = state?.startDate;
   const displayedEnd = state?.endDate;
 
@@ -635,39 +656,41 @@ const GeneratorPage = () => {
       <PageContent title={title}>
         <div className="flex min-w-0 flex-col gap-4">
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="schedule-steps" aria-label="Schedule creation steps">
-              {[
-                ['Input', 'bi-pencil'],
-                ['Generate', 'bi-arrow-repeat'],
-                ['Review', 'bi-eye'],
-                ['Confirm', 'bi-check-lg'],
-              ].map(([label, icon], index) => {
-                const currentIndex =
-                  activeStep === 'pto' || activeStep === 'prn'
-                    ? 0
-                    : view === 'generating'
-                      ? 1
-                      : 2;
-                const isCurrent = currentIndex === index;
-                const isComplete = currentIndex > index;
-                return (
-                  <div className="schedule-step-wrap" key={label}>
-                    {index > 0 && (
-                      <span
-                        className={`schedule-step-line ${isComplete || isCurrent ? 'complete' : ''}`}
-                        aria-hidden="true"
-                      />
-                    )}
-                    <div className={`schedule-step ${isCurrent ? 'current' : ''} ${isComplete ? 'complete' : ''}`}>
-                      <span className="schedule-step-icon">
-                        <i className={`bi ${icon}`} />
-                      </span>
-                      <span>{label}</span>
+            {editScheduleId === null && (
+              <div className="schedule-steps" aria-label="Schedule creation steps">
+                {[
+                  ['Input', 'bi-pencil'],
+                  ['Generate', 'bi-arrow-repeat'],
+                  ['Review', 'bi-eye'],
+                  ['Confirm', 'bi-check-lg'],
+                ].map(([label, icon], index) => {
+                  const currentIndex =
+                    activeStep === 'pto' || activeStep === 'prn'
+                      ? 0
+                      : view === 'generating'
+                        ? 1
+                        : 2;
+                  const isCurrent = currentIndex === index;
+                  const isComplete = currentIndex > index;
+                  return (
+                    <div className="schedule-step-wrap" key={label}>
+                      {index > 0 && (
+                        <span
+                          className={`schedule-step-line ${isComplete || isCurrent ? 'complete' : ''}`}
+                          aria-hidden="true"
+                        />
+                      )}
+                      <div className={`schedule-step ${isCurrent ? 'current' : ''} ${isComplete ? 'complete' : ''}`}>
+                        <span className="schedule-step-icon">
+                          <i className={`bi ${icon}`} />
+                        </span>
+                        <span>{label}</span>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            )}
             {displayedStart && displayedEnd && (
               <span className="schedule-period">
                 Six-week schedule · {formatDateRange(displayedStart, displayedEnd)}
@@ -769,7 +792,7 @@ const GeneratorPage = () => {
                   <Button variant="outlined" disabled={redoStack.length === 0} onClick={redo}>
                     Redo
                   </Button>
-                  <Button
+                  {editScheduleId === null && <Button
                     variant="outlined"
                     onClick={() => {
                       if (state.hasManualEdits) setShowRegenerate(true);
@@ -777,7 +800,7 @@ const GeneratorPage = () => {
                     }}
                   >
                     Regenerate
-                  </Button>
+                  </Button>}
                 </div>
               </div>
 
@@ -966,7 +989,9 @@ const GeneratorPage = () => {
                 <Button
                   variant="outlined"
                   onClick={() => {
-                    if (state.hasManualEdits) setShowBackReview(true);
+                    if (editScheduleId !== null) {
+                      navigate(`/schedules/${editScheduleId}`);
+                    } else if (state.hasManualEdits) setShowBackReview(true);
                     else returnToInputs();
                   }}
                 >
@@ -986,16 +1011,23 @@ const GeneratorPage = () => {
 
       <Dialog
         open={showConfirm}
-        title="Confirm schedule"
+        title={editScheduleId !== null ? 'Save schedule changes' : 'Confirm schedule'}
         onCancel={() => setShowConfirm(false)}
         onConfirm={() => void confirmSchedule()}
-        confirmLabel={isWorking ? 'Confirming…' : 'Confirm schedule'}
+        confirmLabel={
+          isWorking
+            ? 'Saving…'
+            : editScheduleId !== null
+              ? 'Save changes'
+              : 'Confirm schedule'
+        }
         confirmDisabled={isWorking || (warnings.length > 0 && !acknowledged)}
       >
         {state && (
           <div className="flex flex-col gap-4">
             <p>
-              Confirm {formatDateRange(state.startDate, state.endDate)} for{' '}
+              {editScheduleId !== null ? 'Save changes to' : 'Confirm'}{' '}
+              {formatDateRange(state.startDate, state.endDate)} for{' '}
               {state.staffSnapshot.length} staff members.
             </p>
             <p>
@@ -1043,7 +1075,7 @@ const GeneratorPage = () => {
       </Dialog>
 
       <Dialog
-        open={showDiscard}
+        open={showDiscard && editScheduleId === null}
         title="Leave this schedule?"
         onCancel={() => setShowDiscard(false)}
         onConfirm={() => void discardDraft()}

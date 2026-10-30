@@ -113,7 +113,10 @@ const SchedulesPage = () => {
                 {segments.map((segment) => (
                   <tr
                     key={segment.id}
-                    className={highlightedId === segment.id ? 'recent-confirmation' : ''}
+                    className={
+                      highlightedId === segment.id ? 'recent-confirmation cursor-pointer' : 'cursor-pointer'
+                    }
+                    onClick={() => navigate(`/schedules/${segment.id}`)}
                   >
                     <td>
                       {dateLabel(segment.startDate)} – {dateLabel(segment.endDate)}
@@ -133,7 +136,10 @@ const SchedulesPage = () => {
                             icon="bi-pencil"
                             variant="outlined"
                             className="h-8! w-8! rounded-lg!"
-                            onClick={() => navigate(`/new?draft=${segment.id}`)}
+                            onClick={(event) => {
+                              event?.stopPropagation?.();
+                              navigate(`/new?draft=${segment.id}`);
+                            }}
                           />
                           <IconButton
                             ariaLabel="Delete schedule draft"
@@ -141,7 +147,8 @@ const SchedulesPage = () => {
                             icon="bi-trash"
                             variant="outlined"
                             className="h-8! w-8! rounded-lg! border-cherry-600! text-cherry-600! hover:bg-cherry-100!"
-                            onClick={() => {
+                            onClick={(event) => {
+                              event?.stopPropagation?.();
                               setDeleteError(null);
                               setDraftToDelete(segment);
                             }}

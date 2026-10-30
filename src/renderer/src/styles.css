@@ -18,9 +18,11 @@
   --color-cherry-600: #912018;
   --color-orange: #b42318;
   --color-bronze-100: #fdf0c4;
+  --color-bronze-300: #f0be35;
   --color-bronze-600: #6b4e00;
   --color-mint-50: #f4f8f8;
   --color-mint-100: #e0f2f0;
+  --color-mint-150: #d1e8e5;
   --color-mint-200: #bcd7d4;
   --color-mint-300: #0f766e;
   --color-mint-400: #0f6961;
@@ -356,6 +358,52 @@
           @apply border-b border-b-grey-50;
         }
       }
+
+      @media print {
+        body:has(.weekly-schedule-grid) {
+          background: var(--color-white);
+        }
+
+        body:has(.weekly-schedule-grid) main {
+          height: auto !important;
+          overflow: visible !important;
+          padding: 0 !important;
+        }
+
+        body:has(.weekly-schedule-grid) main > div {
+          display: block !important;
+          height: auto !important;
+        }
+
+        body:has(.weekly-schedule-grid) main > div > div {
+          overflow: visible !important;
+        }
+
+        body:has(.weekly-schedule-grid) [data-testid='navbar'],
+        body:has(.weekly-schedule-grid) button:not(.weekly-assignment),
+        body:has(.weekly-schedule-grid) .weekly-editor-backdrop {
+          display: none !important;
+        }
+
+        body:has(.weekly-schedule-grid) .weekly-schedule-scroll {
+          overflow: visible !important;
+          border: 0 !important;
+          padding: 0 !important;
+        }
+
+        body:has(.weekly-schedule-grid) .weekly-schedule-grid {
+          min-width: 0 !important;
+          font-size: 0.8rem;
+        }
+
+        body:has(.weekly-schedule-grid) .weekly-assignment {
+          border: 0;
+          background: transparent;
+          padding-right: 0;
+          padding-left: 0;
+          cursor: default;
+        }
+      }
     }
   }
 
@@ -526,6 +574,234 @@
     min-width: 1.65rem;
     padding-left: 0.25rem;
     text-align: left;
+  }
+
+  .history-details-grid {
+    border-collapse: separate;
+    border-spacing: 2px;
+  }
+
+  .history-grid-scroll {
+    padding: 1rem;
+  }
+
+  .history-week-even {
+    background-color: var(--color-mint-50);
+  }
+
+  .history-week-odd {
+    background-color: var(--color-white);
+  }
+
+  .history-week-header {
+    height: 3rem !important;
+    border-radius: 0.75rem 0.75rem 0 0;
+  }
+
+  .history-week-hover,
+  .history-week-hover .schedule-cell,
+  .history-week-hover .schedule-total {
+    background-color: var(--color-mint-150) !important;
+  }
+
+  .history-details-grid .schedule-name-cell {
+    z-index: 11;
+  }
+
+  .history-details-grid .schedule-cell,
+  .history-details-grid .schedule-total {
+    cursor: default;
+  }
+
+  .history-details-grid .schedule-cell-work:hover {
+    box-shadow: none;
+  }
+
+  .history-details-grid .schedule-cell-work,
+  .history-details-grid .schedule-cell-work .schedule-cell {
+    background: var(--color-mint-100);
+    color: var(--color-mint-600);
+  }
+
+  .history-details-grid .schedule-cell-pto,
+  .history-details-grid .schedule-cell-pto .schedule-cell {
+    background: var(--color-cherry-100);
+    color: var(--color-cherry-600);
+  }
+
+  .history-grid-scroll[data-scrolled='true'] .schedule-name-cell::before,
+  .history-grid-scroll[data-scrolled='true'] .schedule-name-cell::after {
+    display: block;
+  }
+
+  .weekly-schedule-scroll {
+    max-width: 100%;
+    overflow: auto;
+    border: 1px solid var(--color-grey-50);
+    border-radius: 0.875rem;
+    background: var(--color-white);
+    padding: 0.75rem;
+  }
+
+  .weekly-schedule-grid {
+    width: 100%;
+    min-width: 54rem;
+    border-collapse: separate;
+    border-spacing: 0;
+    color: var(--color-grey-900);
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+  }
+
+  .weekly-schedule-grid th,
+  .weekly-schedule-grid td {
+    padding: 0.5rem;
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .weekly-schedule-grid thead th {
+    height: 3rem;
+    border-bottom: 2px solid var(--color-grey-200);
+    font-size: 0.875rem;
+    font-weight: 700;
+  }
+
+  .weekly-schedule-grid thead th:first-child,
+  .weekly-schedule-grid tbody th {
+    width: 3.25rem;
+    min-width: 3.25rem;
+  }
+
+  .weekly-schedule-grid thead th:not(:first-child) {
+    text-align: left;
+  }
+
+  .weekly-date-label {
+    display: block;
+    margin-top: 0.125rem;
+    color: var(--color-grey-200);
+    font-size: 0.7rem;
+    font-weight: 400;
+  }
+
+  .weekly-schedule-grid tbody tr:not(:last-child) th,
+  .weekly-schedule-grid tbody tr:not(:last-child) td {
+    border-bottom: 1px solid var(--color-grey-50);
+  }
+
+  .weekly-schedule-grid tbody tr.weekly-section-divider th,
+  .weekly-schedule-grid tbody tr.weekly-section-divider td {
+    border-bottom: 2px solid var(--color-grey-200);
+  }
+
+  .weekly-schedule-grid tbody th {
+    color: var(--color-mint-600);
+    font-weight: 700;
+  }
+
+  .weekly-schedule-grid tbody td:nth-child(odd) {
+    background: var(--color-mint-50);
+  }
+
+  .weekly-schedule-grid tbody td.weekly-drop-target {
+    background: var(--color-mint-100);
+    box-shadow: inset 0 0 0 2px var(--color-mint-600);
+  }
+
+  .weekly-assignment-list {
+    display: flex;
+    min-height: 3.75rem;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 0.25rem;
+  }
+
+  .weekly-assignment {
+    display: flex;
+    min-height: 2rem;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    border: 2px solid transparent;
+    border-radius: 0.5rem;
+    background: transparent;
+    padding: 0.25rem 0.375rem;
+    color: var(--color-grey-900);
+    cursor: grab;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .weekly-assignment:active {
+    cursor: grabbing;
+  }
+
+  .weekly-assignment-dragging {
+    opacity: 0.45;
+  }
+
+  .weekly-assignment:hover,
+  .weekly-assignment:focus-visible {
+    border-color: var(--color-mint-600);
+    background: var(--color-mint-100);
+    outline: none;
+  }
+
+  .weekly-assignment-person {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    gap: 0.25rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .weekly-assignment-time {
+    flex-shrink: 0;
+    color: var(--color-grey-600);
+    font-size: 0.7rem;
+  }
+
+  .weekly-marker {
+    width: 0.45rem;
+    height: 0.45rem;
+    flex-shrink: 0;
+    border-radius: 50%;
+  }
+
+  .weekly-marker-leader {
+    background: var(--color-bronze-300);
+  }
+
+  .weekly-marker-orientation {
+    background: var(--color-orange);
+  }
+
+  .weekly-editor-backdrop {
+    position: fixed;
+    z-index: 40;
+    inset: 0;
+  }
+
+  .weekly-time-editor {
+    position: fixed;
+    display: flex;
+    width: 12.25rem;
+    flex-direction: column;
+    gap: 0.75rem;
+    border: 1px solid var(--color-mint-400);
+    border-radius: 0.75rem;
+    background: var(--color-white);
+    padding: 0.75rem;
+    box-shadow: 0 8px 20px rgb(31 41 55 / 16%);
+  }
+
+  .weekly-time-editor select {
+    height: 2.5rem;
+    border-color: var(--color-grey-200);
+    padding: 0 0.625rem;
   }
 
   .schedule-staff-label {

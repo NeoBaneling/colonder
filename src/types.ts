@@ -83,6 +83,22 @@ export interface ScheduleSegment {
   state: SegmentState;
 }
 
+export interface WeeklyAssignment {
+  date: string;
+  staffId: number;
+  department: Dept;
+  room: number | null;
+  startTime: string;
+}
+
+export interface WeeklySchedule {
+  id: number;
+  segmentId: number;
+  weekStart: string;
+  confirmed: boolean;
+  assignments: WeeklyAssignment[];
+}
+
 export const DEFAULT_SETTINGS: Settings = {
   workingDays: [false, true, true, true, true, true, false],
   targetNurses: 13,

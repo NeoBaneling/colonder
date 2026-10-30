@@ -5,6 +5,8 @@ import type {
   SegmentState,
   Settings,
   Staff,
+  WeeklyAssignment,
+  WeeklySchedule,
 } from '@app/types'
 
 declare global {
@@ -25,7 +27,18 @@ declare global {
       create: (state: SegmentState) => Promise<ScheduleSegment>
       saveDraft: (id: number, state: SegmentState) => Promise<ScheduleSegment>
       confirm: (id: number, state: SegmentState) => Promise<ScheduleSegment>
+      updateConfirmed: (id: number, state: SegmentState) => Promise<ScheduleSegment>
       deleteDraft: (id: number) => Promise<boolean>
+    }
+    weeklySchedules: {
+      listForSegment: (segmentId: number) => Promise<WeeklySchedule[]>
+      getOrCreate: (segmentId: number, weekStart: string) => Promise<WeeklySchedule>
+      save: (
+        id: number,
+        assignments: WeeklyAssignment[],
+        confirmed: boolean,
+      ) => Promise<WeeklySchedule>
+      downloadPdf: (filename: string) => Promise<{ canceled: boolean }>
     }
   }
 }
