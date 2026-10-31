@@ -2,10 +2,16 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router';
+import {
+  useBlocker,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from 'react-router';
 import {
   Emp,
   Role,
@@ -254,6 +260,7 @@ const GeneratorPage = () => {
   const [segments, setSegments] = useState<ScheduleSegment[]>([]);
   const [state, setState] = useState<SegmentState | null>(null);
   const [draftId, setDraftId] = useState<number | null>(null);
+  const draftCreation = useRef<Promise<ScheduleSegment> | null>(null);
   const [editScheduleId, setEditScheduleId] = useState<number | null>(null);
   const [view, setView] = useState<View>('pto');
   const [error, setError] = useState<string | null>(null);
@@ -274,6 +281,29 @@ const GeneratorPage = () => {
   const [showDiscard, setShowDiscard] = useState(false);
   const [showBackReview, setShowBackReview] = useState(false);
   const [reviewGridScrolled, setReviewGridScrolled] = useState(false);
+  const hasDraftProgress =
+    state !== null &&
+    (view === 'review' ||
+      view === 'generating' ||
+      state.ptoDates.length > 0 ||
+      state.prnDates.length > 0);
+  const blocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      editScheduleId === null &&
+      hasDraftProgress &&
+      !isWorking &&
+      currentLocation.pathname !== nextLocation.pathname,
+  );
+  const createDraft = (draftState: SegmentState) => {
+    if (draftCreation.current === null) {
+      const creation = window.segments.create(draftState);
+      draftCreation.current = creation;
+      void creation.catch(() => {
+        if (draftCreation.current === creation) draftCreation.current = null;
+      });
+    }
+    return draftCreation.current;
+  };
 
   useEffect(() => {
     let active = true;
@@ -334,12 +364,7 @@ const GeneratorPage = () => {
             seed: Date.now() % 1000003,
             hasManualEdits: false,
           };
-          return window.segments.create(initial).then((draft) => {
-            if (!active) return;
-            setState(initial);
-            setDraftId(draft.id);
-            setSegments((current) => [draft, ...current]);
-          });
+          setState(initial);
         }
       })
       .catch((reason: unknown) => {
@@ -359,24 +384,51 @@ const GeneratorPage = () => {
   }, [draftParam, editParam]);
 
   useEffect(() => {
-    if (draftId === null || state === null || editScheduleId !== null) return;
+    if (
+      state === null ||
+      editScheduleId !== null ||
+      isWorking ||
+      !hasDraftProgress
+    ) {
+      return;
+    }
+    let active = true;
     const timeout = window.setTimeout(() => {
-      window.segments
-        .saveDraft(draftId, state)
-        .then((saved) => {
+      const persist = async () => {
+        try {
+          let saved: ScheduleSegment;
+          if (draftId !== null) {
+            saved = await window.segments.saveDraft(draftId, state);
+          } else {
+            saved = await createDraft(state);
+            if (active) setDraftId(saved.id);
+          }
+          if (!active) return;
           setSegments((current) =>
-            current.map((segment) => (segment.id === saved.id ? saved : segment)),
+            current.some((segment) => segment.id === saved.id)
+              ? current.map((segment) =>
+                  segment.id === saved.id ? saved : segment,
+                )
+              : [saved, ...current],
           );
           setSavingError(null);
-        })
-        .catch((reason: unknown) => {
-          setSavingError(
-            reason instanceof Error ? reason.message : 'Unable to save schedule draft.',
-          );
-        });
+        } catch (reason) {
+          if (active) {
+            setSavingError(
+              reason instanceof Error
+                ? reason.message
+                : 'Unable to save schedule draft.',
+            );
+          }
+        }
+      };
+      void persist();
     }, 500);
-    return () => window.clearTimeout(timeout);
-  }, [draftId, editScheduleId, state]);
+    return () => {
+      active = false;
+      window.clearTimeout(timeout);
+    };
+  }, [draftId, editScheduleId, hasDraftProgress, isWorking, state]);
 
   const dates = useMemo(
     () =>
@@ -587,10 +639,15 @@ const GeneratorPage = () => {
   }, [redo, undo, view]);
 
   const confirmSchedule = async () => {
-    const scheduleId = editScheduleId ?? draftId;
-    if (!state || scheduleId === null || (warnings.length > 0 && !acknowledged)) return;
+    if (!state || (warnings.length > 0 && !acknowledged)) return;
     setIsWorking(true);
     try {
+      let scheduleId = editScheduleId ?? draftId;
+      if (scheduleId === null) {
+        const draft = await createDraft(state);
+        scheduleId = draft.id;
+        setDraftId(draft.id);
+      }
       const confirmed =
         editScheduleId !== null
           ? await window.segments.updateConfirmed(editScheduleId, state)
@@ -611,18 +668,53 @@ const GeneratorPage = () => {
   };
 
   const discardDraft = async () => {
-    if (draftId !== null) {
-      try {
-        await window.segments.deleteDraft(draftId);
-      } catch (reason) {
-        setError(
-          reason instanceof Error ? reason.message : 'Unable to delete schedule draft.',
-        );
-        setShowDiscard(false);
-        return;
+    try {
+      const pendingDraft =
+        draftId === null ? await draftCreation.current : null;
+      const idToDelete = draftId ?? pendingDraft?.id;
+      if (idToDelete !== undefined && idToDelete !== null) {
+        await window.segments.deleteDraft(idToDelete);
       }
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : 'Unable to delete schedule draft.',
+      );
+      return;
     }
-    navigate('/schedules');
+    if (draftCreation.current) draftCreation.current = null;
+    setShowDiscard(false);
+    if (blocker.state === 'blocked') blocker.proceed();
+    else navigate('/schedules');
+  };
+
+  const saveDraftAndLeave = async () => {
+    if (!state) return;
+    setIsWorking(true);
+    try {
+      const saved =
+        draftId === null
+          ? await createDraft(state)
+          : await window.segments.saveDraft(draftId, state);
+      setDraftId(saved.id);
+      setSegments((current) =>
+        current.some((segment) => segment.id === saved.id)
+          ? current.map((segment) =>
+              segment.id === saved.id ? saved : segment,
+            )
+          : [saved, ...current],
+      );
+      setSavingError(null);
+      setError(null);
+      setShowDiscard(false);
+      if (blocker.state === 'blocked') blocker.proceed();
+      else navigate('/schedules');
+    } catch (reason) {
+      setError(
+        reason instanceof Error ? reason.message : 'Unable to save schedule draft.',
+      );
+    } finally {
+      setIsWorking(false);
+    }
   };
 
   if (loadError) {
@@ -733,8 +825,10 @@ const GeneratorPage = () => {
                         current ? { ...current, step: 'pto' } : current,
                       );
                       setView('pto');
-                    } else {
+                    } else if (hasDraftProgress) {
                       setShowDiscard(true);
+                    } else {
+                      void discardDraft();
                     }
                   }}
                 >
@@ -1075,13 +1169,36 @@ const GeneratorPage = () => {
       </Dialog>
 
       <Dialog
-        open={showDiscard && editScheduleId === null}
+        open={
+          editScheduleId === null &&
+          (showDiscard || blocker.state === 'blocked')
+        }
         title="Leave this schedule?"
-        onCancel={() => setShowDiscard(false)}
+        onCancel={() => {
+          setShowDiscard(false);
+          setError(null);
+          if (blocker.state === 'blocked') blocker.reset();
+        }}
+        onSecondary={() => void saveDraftAndLeave()}
         onConfirm={() => void discardDraft()}
+        cancelLabel="Cancel"
+        secondaryLabel="Save draft"
         confirmLabel="Discard draft"
+        confirmDisabled={isWorking}
+        secondaryDisabled={isWorking}
+        confirmVariant="danger"
       >
-        The unsaved draft will be removed. You can stay here to continue editing it.
+        <div className="flex flex-col gap-3">
+          <p>
+            Save this draft to continue it later, or discard it to remove it
+            permanently. Cancel to stay here and keep editing.
+          </p>
+          {error && (
+            <p role="alert" className="text-cherry-600">
+              {error}
+            </p>
+          )}
+        </div>
       </Dialog>
 
       <Dialog

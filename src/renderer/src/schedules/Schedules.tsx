@@ -18,7 +18,9 @@ const SchedulesPage = () => {
   const location = useLocation();
   const [segments, setSegments] = useState<ScheduleSegment[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [draftToDelete, setDraftToDelete] = useState<ScheduleSegment | null>(null);
+  const [draftToDelete, setDraftToDelete] = useState<ScheduleSegment | null>(
+    null,
+  );
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [highlightedId, setHighlightedId] = useState<number | null>(null);
 
@@ -58,14 +60,17 @@ const SchedulesPage = () => {
     try {
       const deleted = await window.segments.deleteDraft(draftToDelete.id);
       if (!deleted) throw new Error('This draft no longer exists.');
-      setSegments((current) =>
-        current?.filter((segment) => segment.id !== draftToDelete.id) ?? [],
+      setSegments(
+        (current) =>
+          current?.filter((segment) => segment.id !== draftToDelete.id) ?? [],
       );
       setDraftToDelete(null);
       setDeleteError(null);
     } catch (error) {
       setDeleteError(
-        error instanceof Error ? error.message : 'Unable to delete schedule draft.',
+        error instanceof Error
+          ? error.message
+          : 'Unable to delete schedule draft.',
       );
     }
   };
@@ -114,28 +119,33 @@ const SchedulesPage = () => {
                   <tr
                     key={segment.id}
                     className={
-                      highlightedId === segment.id ? 'recent-confirmation cursor-pointer' : 'cursor-pointer'
+                      highlightedId === segment.id
+                        ? 'recent-confirmation cursor-pointer'
+                        : 'cursor-pointer'
                     }
                     onClick={() => navigate(`/schedules/${segment.id}`)}
                   >
                     <td>
-                      {dateLabel(segment.startDate)} – {dateLabel(segment.endDate)}
+                      {dateLabel(segment.startDate)} –{' '}
+                      {dateLabel(segment.endDate)}
                     </td>
                     <td>
-                      <span className={`chip ${segment.status === 'draft' ? 'warning' : ''}`}>
+                      <span
+                        className={`chip ${segment.status === 'draft' ? 'warning' : ''}`}
+                      >
                         {segment.status === 'draft' ? 'Draft' : 'Confirmed'}
                       </span>
                     </td>
                     <td>{segment.state.staffSnapshot.length}</td>
                     <td>
-                      {segment.status === 'draft' ? (
+                      {segment.status === 'draft' && (
                         <div className="flex flex-wrap gap-2">
                           <IconButton
                             ariaLabel="Resume schedule draft"
                             title="Resume schedule draft"
                             icon="bi-pencil"
                             variant="outlined"
-                            className="h-8! w-8! rounded-lg!"
+                            className="h-8! w-8! rounded-full! border-0! hover:bg-mint-600! hover:text-white!"
                             onClick={(event) => {
                               event?.stopPropagation?.();
                               navigate(`/new?draft=${segment.id}`);
@@ -146,7 +156,7 @@ const SchedulesPage = () => {
                             title="Delete schedule draft"
                             icon="bi-trash"
                             variant="outlined"
-                            className="h-8! w-8! rounded-lg! border-cherry-600! text-cherry-600! hover:bg-cherry-100!"
+                            className="h-8! w-8! rounded-full! border-0! text-cherry-600! hover:bg-cherry-600! hover:text-white!"
                             onClick={(event) => {
                               event?.stopPropagation?.();
                               setDeleteError(null);
@@ -154,8 +164,6 @@ const SchedulesPage = () => {
                             }}
                           />
                         </div>
-                      ) : (
-                        <span className="text-grey-200">—</span>
                       )}
                     </td>
                   </tr>
@@ -176,7 +184,11 @@ const SchedulesPage = () => {
       >
         <div className="flex flex-col gap-3">
           <p>This draft and its input will be permanently removed.</p>
-          {deleteError && <p role="alert" className="text-cherry-600">{deleteError}</p>}
+          {deleteError && (
+            <p role="alert" className="text-cherry-600">
+              {deleteError}
+            </p>
+          )}
         </div>
       </Dialog>
     </>
