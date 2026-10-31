@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Formik, Form, Field, FieldArray } from 'formik';
+import { Formik, Form, FieldArray } from 'formik';
 import type { Settings } from '@app/types';
 import { Button } from '../inputs/Button';
-import { Toggle } from '../inputs/Toggle';
 import { PageContent } from '../layout/PageContent';
 import { DayControl } from './DayControl';
 import { TextField } from '../inputs/TextField';
+import { settingsFormSchema } from './util';
 
 const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -43,6 +43,10 @@ const SettingsPage = () => {
       ) : (
         <Formik
           initialValues={initialValues}
+          validationSchema={settingsFormSchema}
+          validateOnBlur
+          validateOnChange={false}
+          validateOnMount
           onSubmit={async (values, { resetForm, setStatus }) => {
             try {
               const savedSettings = await window.settings.save(values);
@@ -56,7 +60,14 @@ const SettingsPage = () => {
             }
           }}
         >
-          {({ values }) => (
+          {({
+            errors,
+            isSubmitting,
+            isValid,
+            isValidating,
+            touched,
+            values,
+          }) => (
             <Form>
               <div className="card">
                 <label>Working days</label>
@@ -75,16 +86,31 @@ const SettingsPage = () => {
                     </div>
                   )}
                 />
+                <p
+                  className="min-h-4 text-xs text-cherry-600"
+                  role={
+                    touched.workingDays && errors.workingDays
+                      ? 'alert'
+                      : undefined
+                  }
+                  aria-live="polite"
+                >
+                  {touched.workingDays && typeof errors.workingDays === 'string'
+                    ? errors.workingDays
+                    : ' '}
+                </p>
                 <div className="flex flex-row gap-6">
                   <TextField
                     name="targetNurses"
                     label="Target nurses"
                     type="number"
+                    reserveErrorSpace
                   />
                   <TextField
                     name="targetTechs"
                     label="Target techs"
                     type="number"
+                    reserveErrorSpace
                   />
                 </div>
                 <div className="flex flex-row gap-6">
@@ -92,21 +118,21 @@ const SettingsPage = () => {
                     name="procRooms"
                     label="Procedure rooms (PROC)"
                     type="number"
+                    reserveErrorSpace
                   />
                   <TextField
                     name="deleteAfter"
                     label="Delete after (weeks)"
                     type="number"
+                    reserveErrorSpace
                   />
                 </div>
-                <div className="flex flex-row items-center gap-3">
-                  <label>Theme</label>
-                  <i className="bi bi-sun" />
-                  <Toggle name="isDark" label="Dark theme" />
-                  <i className="bi bi-moon" />
-                </div>
                 <div className="w-full flex flex-row-reverse">
-                  <Button type="submit" variant="filled">
+                  <Button
+                    type="submit"
+                    variant="filled"
+                    disabled={isSubmitting || isValidating || !isValid}
+                  >
                     Save
                   </Button>
                 </div>

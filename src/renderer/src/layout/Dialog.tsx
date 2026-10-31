@@ -4,22 +4,28 @@ import { Button } from '../inputs/Button';
 type DialogProps = {
   open?: boolean;
   onCancel?: () => void;
+  onSecondary?: () => void;
   onConfirm?: () => void;
   title?: ReactNode;
   cancelLabel?: string;
+  secondaryLabel?: string;
   confirmLabel?: string;
   confirmDisabled?: boolean;
+  secondaryDisabled?: boolean;
   confirmVariant?: 'primary' | 'danger';
 };
 
 export const Dialog = ({
   open = false,
   onCancel,
+  onSecondary,
   onConfirm,
   title,
   cancelLabel = 'Cancel',
+  secondaryLabel = 'Save',
   confirmLabel = 'Confirm',
   confirmDisabled = false,
+  secondaryDisabled = false,
   confirmVariant = 'primary',
   children,
 }: PropsWithChildren<DialogProps>) => {
@@ -59,7 +65,7 @@ export const Dialog = ({
         <div className="font-sans text-base leading-relaxed text-grey-900 sm:text-xl">
           {children}
         </div>
-        {(onCancel || onConfirm) && (
+        {(onCancel || onSecondary || onConfirm) && (
           <div className="flex flex-wrap justify-end gap-3 sm:gap-5">
             {onCancel && (
               <Button
@@ -69,6 +75,17 @@ export const Dialog = ({
                 className="min-h-12 px-6 text-lg font-bold"
               >
                 {cancelLabel}
+              </Button>
+            )}
+            {onSecondary && (
+              <Button
+                type="button"
+                variant="outlined"
+                disabled={secondaryDisabled}
+                onClick={onSecondary}
+                className="min-h-12 px-6 text-lg font-bold"
+              >
+                {secondaryLabel}
               </Button>
             )}
             {onConfirm && (

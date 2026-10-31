@@ -42,7 +42,7 @@ export const IpcField = ({ staffNames }: IpcFieldProps) => {
 
   return (
     <div className="flex flex-col gap-2">
-      <label htmlFor="ipcIds">Interpersonal conflicts</label>
+      <label htmlFor="ipcIds">Interpersonal conflicts (optional)</label>
       <div ref={containerRef} className="relative">
         <div className="ipc-select-control">
           {value.map((ipcId) => {

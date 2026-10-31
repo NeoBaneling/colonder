@@ -1,4 +1,5 @@
-import { Dept, Staff } from '../../../types';
+import * as yup from 'yup';
+import { Dept, Emp, Role, Staff } from '../../../types';
 
 export type StaffFormData = Omit<Staff, 'id' | 'departments'> & {
   id?: number;
@@ -6,6 +7,42 @@ export type StaffFormData = Omit<Staff, 'id' | 'departments'> & {
   isPacu: boolean;
   isPreop: boolean;
 };
+
+export const staffFormSchema = yup
+  .object({
+    id: yup.number().integer().positive().optional(),
+    firstName: yup.string().required('First name is required'),
+    lastName: yup.string().required('Last name is required'),
+    title: yup.string().required('Job title is required'),
+    role: yup.number().oneOf([Role.Nurse, Role.Tech]).required(),
+    employment: yup
+      .number()
+      .oneOf([Emp.FullTime, Emp.PartTime, Emp.PRN])
+      .required(),
+    isProc: yup.boolean().required(),
+    isPacu: yup.boolean().required(),
+    isPreop: yup.boolean().required(),
+    startTime: yup.string().required(),
+    isLeader: yup.boolean().required(),
+    inOrientation: yup.boolean().required(),
+    ipcIds: yup.array().of(yup.number().integer().required()).required(),
+  })
+  .test(
+    'at-least-one-department',
+    'Select at least one department',
+    function (values) {
+      if (values?.isProc || values?.isPacu || values?.isPreop) return true;
+      return this.createError({ path: 'isProc' });
+    },
+  )
+  .test(
+    'leader-not-in-orientation',
+    "Orientation staff can't be leaders",
+    function (values) {
+      if (!values?.isLeader || !values.inOrientation) return true;
+      return this.createError({ path: 'isLeader' });
+    },
+  );
 
 export const staffToForm = (staff: Staff): StaffFormData => {
   const depts = staff.departments;

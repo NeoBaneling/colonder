@@ -1,4 +1,5 @@
-import { useField } from 'formik';
+import { useField, useFormikContext } from 'formik';
+import type { Settings } from '@app/types';
 
 type DayControlProps = {
   index: number;
@@ -8,6 +9,7 @@ type DayControlProps = {
 
 export const DayControl = ({ index, name, value }: DayControlProps) => {
   const [, , { setValue }] = useField(`workingDays[${index}]`);
+  const { setFieldTouched } = useFormikContext<Settings>();
 
   return (
     <button
@@ -16,6 +18,9 @@ export const DayControl = ({ index, name, value }: DayControlProps) => {
       aria-label={name}
       className={`flex flex-col justify-center w-15 h-15 sm:w-20 sm:h-20 gap-1 cursor-pointer font-sans font-semibold border border-grey-200 rounded-2xl hover:border-mint-600 hover:bg-mint-50 ${value ? 'text-mint-600 border-mint-600 bg-mint-100 border-2' : ''}`}
       onClick={() => setValue(!value)}
+      onBlur={() => {
+        void setFieldTouched('workingDays', true);
+      }}
     >
       {name}
     </button>
