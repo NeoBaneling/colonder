@@ -36,7 +36,7 @@ test('saves and restores settings from SQLite', async () => {
     await page.getByLabel('Delete after (weeks)').fill('24');
     await page.getByRole('button', { name: 'Sun' }).click();
     await page.getByRole('button', { name: 'Thu' }).click();
-    await page.locator('.toggle').click();
+    await expect(page.getByRole('button', { name: 'Save' })).toBeEnabled();
     await page.getByRole('button', { name: 'Save' }).click();
     await expect
       .poll(() =>
@@ -48,7 +48,7 @@ test('saves and restores settings from SQLite', async () => {
         targetTechs: 8,
         procRooms: 6,
         deleteAfter: 24,
-        isDark: true,
+        isDark: false,
       });
 
     await app.close();
@@ -68,9 +68,9 @@ test('saves and restores settings from SQLite', async () => {
       'aria-pressed',
       'false',
     );
-    await expect(
-      page.getByRole('switch', { name: 'Dark theme' }),
-    ).toBeChecked();
+    await expect
+      .poll(() => page.evaluate(() => window.settings.get()))
+      .toMatchObject({ isDark: false });
   } finally {
     await app.close();
     await rm(userDataPath, { recursive: true, force: true });
@@ -103,7 +103,14 @@ test('creates, edits, reloads, and deletes staff in SQLite', async () => {
     await page.getByLabel('Last name').fill('First');
     await page.getByLabel('Job title').fill('RN');
     await page.getByLabel('Preferred start time').fill('07:00');
-    await page.locator('.toggle').nth(0).click();
+    const procToggle = page
+      .locator('.toggle')
+      .filter({ has: page.getByRole('switch', { name: 'PROC' }) });
+    await procToggle.click();
+    await expect(page.getByRole('switch', { name: 'PROC' })).toBeChecked();
+    await page.getByLabel('Job title').focus();
+    await page.getByLabel('Job title').blur();
+    await expect(page.getByRole('button', { name: 'Save' })).toBeEnabled();
     await page.getByRole('button', { name: 'Save' }).click();
     await expect(page.getByRole('heading', { name: 'Staff' })).toBeVisible();
     await expect(page.getByText('First, Ada')).toBeVisible();
@@ -114,6 +121,13 @@ test('creates, edits, reloads, and deletes staff in SQLite', async () => {
     await page.getByLabel('Job title').fill('Tech');
     await page.getByLabel('Preferred start time').fill('07:30');
     await page.getByLabel('Role').selectOption('1');
+    const pacuToggle = page
+      .locator('.toggle')
+      .filter({ has: page.getByRole('switch', { name: 'PACU' }) });
+    await pacuToggle.click();
+    await page.getByLabel('Job title').focus();
+    await page.getByLabel('Job title').blur();
+    await expect(page.getByRole('button', { name: 'Save' })).toBeEnabled();
     await page.getByRole('button', { name: 'Save' }).click();
     await expect(page.getByText('Second, Bob')).toBeVisible();
 
@@ -122,7 +136,13 @@ test('creates, edits, reloads, and deletes staff in SQLite', async () => {
     await page.getByLabel('Preferred start time').fill('08:15');
     await page.getByLabel('Role').selectOption('1');
     await page.getByLabel('Employment').selectOption('1');
-    await page.locator('.toggle').nth(3).click();
+    const leaderToggle = page
+      .locator('.toggle')
+      .filter({ has: page.getByRole('switch', { name: 'Leader' }) });
+    await leaderToggle.click();
+    await expect(page.getByRole('switch', { name: 'Leader' })).toBeChecked();
+    await page.getByLabel('Job title').focus();
+    await page.getByLabel('Job title').blur();
     await page.getByRole('button', { name: 'Add a conflict...' }).click();
     await page.getByRole('option', { name: 'Bob Second' }).click();
     await page.keyboard.press('Escape');
@@ -310,6 +330,10 @@ test('creates and confirms a six-week schedule', async () => {
     await expect(ptoCell).toHaveAttribute('aria-pressed', 'true');
     await page.waitForTimeout(600);
     await page.getByRole('link', { name: 'Schedules' }).click();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Save draft' })
+      .click();
     await page.getByRole('button', { name: 'Resume schedule draft' }).click();
     const resumedPtoCell = page.getByRole('button', {
       name: ptoLabel!.replace('not selected', 'selected'),
@@ -402,6 +426,98 @@ test('creates and confirms a six-week schedule', async () => {
     await expect(
       page.getByRole('button', { name: 'Generate weekly schedule' }),
     ).toHaveCount(6);
+  } finally {
+    await app.close();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test('handles clean, saved, and discarded schedule drafts when leaving', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-draft-flow-e2e-'));
+  const app = await electron.launch({
+    args: ['.'],
+    env: {
+      ...process.env,
+      COLONDER_USER_DATA: userDataPath,
+      COLONDER_E2E_HEADLESS: '1',
+    },
+  });
+
+  try {
+    const page = await app.firstWindow();
+    await page.evaluate(() =>
+      window.staff.create({
+        firstName: 'Ada',
+        lastName: 'Nurse',
+        title: 'RN',
+        role: 0,
+        employment: 0,
+        departments: [0],
+        startTime: '07:00',
+        isLeader: false,
+        inOrientation: false,
+        ipcIds: [],
+      }),
+    );
+
+    await page.getByRole('link', { name: 'Create Schedule' }).click();
+    await expect(
+      page.getByRole('heading', { name: /PTO calendar/ }),
+    ).toBeVisible();
+    await page.getByRole('link', { name: 'Staff' }).click();
+    await expect(page.getByRole('heading', { name: 'Staff' })).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => window.segments.list()))
+      .toEqual([]);
+
+    await page.getByRole('link', { name: 'Create Schedule' }).click();
+    const ptoCell = page.getByRole('button', { name: /Ada Nurse,/ }).first();
+    await ptoCell.click();
+    await page.getByRole('link', { name: 'Schedules' }).click();
+    const leaveDialog = page.getByRole('dialog');
+    await expect(leaveDialog).toBeVisible();
+    await expect(
+      leaveDialog.getByText(/Save this draft to continue it later/),
+    ).toBeVisible();
+
+    await leaveDialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(leaveDialog).toHaveCount(0);
+    await expect(
+      page.getByRole('heading', { name: /PTO calendar/ }),
+    ).toBeVisible();
+
+    await page.getByRole('link', { name: 'Schedules' }).click();
+    await leaveDialog.getByRole('button', { name: 'Save draft' }).click();
+    await expect(page.getByRole('heading', { name: 'Schedules' })).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => window.segments.list()))
+      .toEqual([
+        expect.objectContaining({
+          status: 'draft',
+          state: expect.objectContaining({
+            ptoDates: [expect.stringMatching(/^1:/)],
+          }),
+        }),
+      ]);
+
+    await page.getByRole('button', { name: 'Resume schedule draft' }).click();
+    await expect(
+      page.getByRole('heading', { name: /PTO calendar/ }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Generate', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Review & overrides' }),
+    ).toBeVisible();
+    await page.getByRole('link', { name: 'Settings' }).click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Discard draft' })
+      .click();
+    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible();
+    await expect
+      .poll(() => page.evaluate(() => window.segments.list()))
+      .toEqual([]);
   } finally {
     await app.close();
     await rm(userDataPath, { recursive: true, force: true });
