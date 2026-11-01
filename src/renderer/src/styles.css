@@ -1633,30 +1633,6 @@
     padding-top: 0.25rem;
   }
 
-  .schedule-warnings {
-    max-height: 10rem;
-    overflow-y: auto;
-    border-radius: 0.75rem;
-    background: var(--color-cherry-100);
-    padding: 0.75rem 1rem;
-  }
-
-  .schedule-warnings ul {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    padding-left: 1rem;
-  }
-
-  .schedule-warnings button {
-    cursor: pointer;
-    color: var(--color-cherry-600);
-    font-family: var(--font-sans);
-    font-size: 0.8rem;
-    text-align: left;
-    text-decoration: underline;
-  }
-
   .schedule-spinner {
     width: 2rem;
     height: 2rem;

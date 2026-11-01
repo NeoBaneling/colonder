@@ -18,7 +18,6 @@ import {
   type ScheduleSegment,
   type SegmentState,
   type SegmentStep,
-  type SegmentWarning,
   type Settings,
   type Staff,
 } from '../../../types';
@@ -251,8 +250,6 @@ const InputGrid = ({
   );
 };
 
-const warningLabel = (warning: SegmentWarning) => warning.message;
-
 const GeneratorPage = () => {
   const navigate = useNavigate();
   const toast = useToast();
@@ -463,9 +460,6 @@ const GeneratorPage = () => {
         : [],
     [dates, state],
   );
-  const offTargetDays = warnings.filter(
-    (warning) => warning.code === 'DAY_UNDER_TARGET',
-  ).length;
   const reviewCounts = state
     ? dates.map((date) =>
         dailyCounts(date, state.staffSnapshot, state.shifts),
@@ -898,13 +892,6 @@ const GeneratorPage = () => {
             <>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  {warnings.length > 0 && (
-                    <span className="chip error">
-                      {offTargetDays > 0
-                        ? `${offTargetDays} ${offTargetDays === 1 ? 'day' : 'days'} off target`
-                        : `${warnings.length} ${warnings.length === 1 ? 'warning' : 'warnings'}`}
-                    </span>
-                  )}
                   {selectedWork && !onCallMode && (
                     <span className="text-sm">
                       Choose an off day in the same week to swap. Esc cancels.
@@ -1109,29 +1096,6 @@ const GeneratorPage = () => {
                 <p className="text-sm!">
                   W work · – off · P PTO · OC on-call. Counts exclude orientation staff. Select a workday, then a highlighted off day to swap.
                 </p>
-                {warnings.length > 0 && (
-                  <section className="schedule-warnings" aria-label="Schedule warnings">
-                    <h2 className="text-base!">Warnings</h2>
-                    <ul>
-                      {warnings.map((warning, index) => (
-                        <li key={`${warning.code}-${warning.date}-${warning.staffId}-${index}`}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (warning.date) {
-                                document
-                                  .getElementById(`day-${warning.date}`)
-                                  ?.scrollIntoView({ block: 'nearest', inline: 'center' });
-                              }
-                            }}
-                          >
-                            {warningLabel(warning)}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                )}
               </div>
 
               {savingError && <p role="alert" className="text-sm! text-cherry-600">{savingError}</p>}

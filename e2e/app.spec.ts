@@ -420,6 +420,10 @@ test('creates and confirms a six-week schedule', async () => {
       page.getByRole('heading', { name: 'Review & overrides' }),
     ).toBeVisible();
     await expect(
+      page.getByRole('region', { name: 'Schedule warnings' }),
+    ).toHaveCount(0);
+    await expect(page.locator('.chip.error')).toHaveCount(0);
+    await expect(
       page.locator('.schedule-steps').getByText('Confirm', { exact: true }),
     ).toHaveCount(0);
     for (const [name, iconClass, title] of [
