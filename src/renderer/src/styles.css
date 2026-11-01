@@ -87,8 +87,7 @@
   body:has(.schedule-pdf-pages) button,
   body:has(.weekly-schedule-grid) button:not(.weekly-assignment),
   body:has(.weekly-schedule-grid) select,
-  body:has(.weekly-schedule-grid) label:has(select),
-  body:has(.weekly-schedule-grid) .weekly-editor-backdrop {
+  body:has(.weekly-schedule-grid) label:has(select) {
     display: none !important;
   }
 
@@ -134,7 +133,9 @@
     margin: 0 0 0.15in;
     padding-bottom: 0.08in;
     color: #1f2937;
-    font: 700 16pt 'Nunito', sans-serif;
+    font:
+      700 16pt 'Nunito',
+      sans-serif;
   }
 
   .schedule-pdf-page {
@@ -160,12 +161,16 @@
   .schedule-pdf-heading h2 {
     margin: 0;
     color: #1f2937;
-    font: 700 16pt 'Nunito', sans-serif;
+    font:
+      700 16pt 'Nunito',
+      sans-serif;
   }
 
   .schedule-pdf-heading > span {
     color: #0b5c56;
-    font: 700 9pt 'Nunito', sans-serif;
+    font:
+      700 9pt 'Nunito',
+      sans-serif;
   }
 
   .schedule-pdf-grid {
@@ -174,7 +179,9 @@
     border-collapse: collapse;
     border: 1px solid #d5e0e0;
     color: #1f2937;
-    font: 7pt 'Nunito', sans-serif;
+    font:
+      7pt 'Nunito',
+      sans-serif;
   }
 
   .schedule-pdf-grid th,
@@ -254,7 +261,9 @@
   .schedule-pdf-legend {
     margin-top: 0.1in;
     color: #6b7a7a;
-    font: 7pt 'Nunito', sans-serif;
+    font:
+      7pt 'Nunito',
+      sans-serif;
   }
 
   body:has(.weekly-schedule-grid) .weekly-schedule-scroll {
@@ -441,6 +450,214 @@
 }
 
 @layer components {
+  .time-picker {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .time-picker-visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    clip-path: inset(50%);
+  }
+
+  .time-picker-field {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .time-picker .time-picker-input {
+    width: 100%;
+    padding-right: 2.5rem;
+    font-weight: 600;
+  }
+
+  .time-picker .time-picker-input:focus {
+    border-color: var(--color-mint-300);
+    outline: 3px solid rgb(15 118 110 / 20%);
+    outline-offset: 1px;
+  }
+
+  .time-picker .time-picker-input-error {
+    border: 2px solid var(--color-orange);
+  }
+
+  .time-picker-clock {
+    position: absolute;
+    right: 0.5rem;
+    display: grid;
+    width: 1.75rem;
+    height: 1.75rem;
+    place-items: center;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--color-grey-200);
+    cursor: pointer;
+  }
+
+  .time-picker-clock:hover,
+  .time-picker-clock:focus-visible {
+    background: var(--color-mint-100);
+    color: var(--color-grey-900);
+  }
+
+  .time-picker-clock:focus-visible {
+    outline: 2px solid var(--color-mint-300);
+    outline-offset: 1px;
+  }
+
+  .time-picker-error {
+    display: flex;
+    min-height: 1rem;
+    align-items: center;
+    gap: 0.25rem;
+    margin: 0;
+    color: var(--color-orange);
+    font-size: 0.7rem;
+    line-height: 1.25;
+  }
+
+  .time-picker-popover {
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 0;
+    z-index: 50;
+    display: flex;
+    width: 15rem;
+    flex-direction: column;
+    gap: 0.75rem;
+    border: 1px solid var(--color-mint-300);
+    border-radius: 0.75rem;
+    background: var(--color-white);
+    padding: 0.625rem;
+    box-shadow: 0 8px 20px rgb(31 41 55 / 16%);
+  }
+
+  .time-picker-popover[data-placement='above'] {
+    top: auto;
+    bottom: calc(100% + 0.375rem);
+  }
+
+  .time-picker-columns {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0.375rem;
+  }
+
+  .time-picker-column {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .time-picker-column-label {
+    color: var(--color-grey-200);
+    font-size: 0.625rem;
+    text-align: center;
+  }
+
+  .time-picker-options {
+    display: flex;
+    max-height: 10.5rem;
+    flex-direction: column;
+    gap: 0.125rem;
+    overflow-y: auto;
+    scrollbar-width: none;
+  }
+
+  .time-picker-options::-webkit-scrollbar {
+    display: none;
+  }
+
+  .time-picker-option {
+    min-height: 1.875rem;
+    flex: none;
+    border: 0;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--color-grey-900);
+    cursor: pointer;
+    font-family: var(--font-sans);
+    font-size: 0.75rem;
+  }
+
+  .time-picker-option:hover,
+  .time-picker-option:focus-visible {
+    background: var(--color-mint-100);
+    outline: none;
+  }
+
+  .time-picker-option:focus-visible {
+    box-shadow: 0 0 0 2px var(--color-mint-300);
+  }
+
+  .time-picker-option-selected,
+  .time-picker-option-selected:hover {
+    background: var(--color-mint-300);
+    color: var(--color-white);
+    font-weight: 700;
+  }
+
+  .time-picker-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.375rem;
+    border-top: 1px solid var(--color-mint-50);
+    padding-top: 0.5rem;
+  }
+
+  .time-picker-action-button {
+    width: 2.25rem;
+    height: 2.25rem;
+    flex-shrink: 0;
+  }
+
+  .time-picker-inline {
+    width: 5.25rem;
+    min-width: 5.25rem;
+    flex: 0 0 5.25rem;
+    gap: 0;
+  }
+
+  .time-picker-inline .time-picker-field {
+    height: 1.25rem;
+  }
+
+  .time-picker-inline .time-picker-input {
+    height: 1.25rem;
+    min-width: 0;
+    border-radius: 0.375rem;
+    padding: 0 0.25rem;
+    font-size: 0.7rem;
+    text-align: right;
+  }
+
+  .time-picker-inline .time-picker-clock {
+    display: none;
+  }
+
+  .time-picker-inline .time-picker-popover {
+    position: fixed;
+    z-index: 50;
+    width: 15rem;
+    left: auto;
+  }
+
+  .time-picker-inline .time-picker-popover[data-placement='above'] {
+    bottom: auto;
+  }
+
   .toggle {
     display: inline-flex;
     position: relative;
@@ -539,6 +756,138 @@
     border-color: var(--color-grey-50);
     padding: 1rem;
     width: fit-content;
+  }
+
+  .toast-viewport {
+    position: fixed;
+    right: 1.5rem;
+    bottom: 1.5rem;
+    z-index: 1000;
+    display: flex;
+    width: min(24rem, calc(100vw - 3rem));
+    flex-direction: column;
+    gap: 0.75rem;
+    pointer-events: none;
+  }
+
+  .toast {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    overflow: hidden;
+    border: 1px solid var(--color-grey-50);
+    border-left-width: 4px;
+    border-radius: 1rem;
+    background: var(--color-white);
+    padding: 0.875rem 1rem;
+    box-shadow: 0 0.75rem 1.5rem rgb(31 41 55 / 20%);
+    pointer-events: auto;
+    animation: toast-enter 160ms ease-out;
+  }
+
+  .toast-success {
+    border-left-color: var(--color-mint-300);
+  }
+
+  .toast-error {
+    border-left-color: var(--color-orange);
+  }
+
+  .toast-icon {
+    display: grid;
+    width: 2rem;
+    height: 2rem;
+    flex: none;
+    place-items: center;
+    border-radius: 9999px;
+    color: var(--color-white);
+  }
+
+  .toast-success .toast-icon {
+    background: var(--color-mint-300);
+  }
+
+  .toast-error .toast-icon {
+    background: var(--color-orange);
+  }
+
+  .toast-copy {
+    min-width: 0;
+    flex: 1;
+    color: var(--color-grey-900);
+    font-size: 0.875rem;
+  }
+
+  .toast-copy p {
+    margin: 0.125rem 0 0;
+    color: var(--color-grey-200);
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+
+  .toast-dismiss {
+    display: grid;
+    width: 2rem;
+    height: 2rem;
+    flex: none;
+    place-items: center;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: var(--color-grey-200);
+    cursor: pointer;
+  }
+
+  .toast-dismiss:hover,
+  .toast-dismiss:focus-visible {
+    background: var(--color-mint-100);
+    color: var(--color-grey-900);
+  }
+
+  .toast-dismiss:focus-visible {
+    outline: 2px solid var(--color-mint-300);
+    outline-offset: 2px;
+  }
+
+  .toast-progress {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    background: var(--color-mint-300);
+    animation: toast-countdown 5s linear forwards;
+    transform-origin: left;
+  }
+
+  .toast-error .toast-progress {
+    background: var(--color-orange);
+  }
+
+  @keyframes toast-enter {
+    from {
+      opacity: 0;
+      transform: translateY(0.5rem);
+    }
+
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes toast-countdown {
+    to {
+      transform: scaleX(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .toast,
+    .toast-progress {
+      animation: none;
+    }
   }
 
   .chip {
@@ -678,10 +1027,6 @@
 
         body:has(.weekly-schedule-grid) [data-testid='navbar'],
         body:has(.weekly-schedule-grid) button:not(.weekly-assignment),
-        body:has(.weekly-schedule-grid) .weekly-editor-backdrop {
-          display: none !important;
-        }
-
         body:has(.weekly-schedule-grid) .weekly-schedule-scroll {
           overflow: visible !important;
           border: 0 !important;
@@ -1004,6 +1349,48 @@
   .weekly-schedule-grid tbody td.weekly-drop-target {
     background: var(--color-mint-100);
     box-shadow: inset 0 0 0 2px var(--color-mint-600);
+    border-radius: 0.25rem;
+  }
+
+  .weekly-assignment-list.weekly-drop-not-allowed {
+    position: relative;
+    z-index: 1;
+    border-radius: 0.25rem;
+    background: var(--color-cherry-100);
+    box-shadow: inset 0 0 0 2px var(--color-cherry-600);
+    color: var(--color-cherry-600);
+    cursor: not-allowed;
+  }
+
+  .weekly-assignment-list::after {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    z-index: 2;
+    width: max-content;
+    max-width: 14rem;
+    border-radius: 0.375rem;
+    background: var(--color-grey-900);
+    padding: 0.375rem 0.5rem;
+    color: var(--color-white);
+    content: attr(data-tooltip);
+    font-size: 0.7rem;
+    font-weight: 600;
+    line-height: 1.25;
+    opacity: 0;
+    pointer-events: none;
+    text-align: center;
+    transform: translate(-50%, -50%);
+    visibility: hidden;
+    white-space: normal;
+    transition:
+      opacity 0.12s 1s,
+      visibility 0s 1s;
+  }
+
+  .weekly-assignment-list.weekly-drop-not-allowed::after {
+    opacity: 1;
+    visibility: visible;
   }
 
   .weekly-assignment-list {
@@ -1029,6 +1416,7 @@
     cursor: grab;
     text-align: left;
     white-space: nowrap;
+    line-height: 1.25;
   }
 
   .weekly-assignment:active {
@@ -1053,12 +1441,24 @@
     gap: 0.25rem;
     overflow: hidden;
     text-overflow: ellipsis;
+    line-height: 1.25;
   }
 
   .weekly-assignment-time {
-    flex-shrink: 0;
+    width: 5.25rem;
+    flex: 0 0 5.25rem;
     color: var(--color-grey-600);
     font-size: 0.7rem;
+    line-height: 1.25;
+    text-align: right;
+  }
+
+  .weekly-assignment-editing {
+    height: 2rem;
+    min-height: 2rem;
+    border-color: var(--color-mint-600);
+    background: var(--color-mint-100);
+    cursor: default;
   }
 
   .weekly-marker {
@@ -1074,31 +1474,6 @@
 
   .weekly-marker-orientation {
     background: var(--color-orange);
-  }
-
-  .weekly-editor-backdrop {
-    position: fixed;
-    z-index: 40;
-    inset: 0;
-  }
-
-  .weekly-time-editor {
-    position: fixed;
-    display: flex;
-    width: 12.25rem;
-    flex-direction: column;
-    gap: 0.75rem;
-    border: 1px solid var(--color-mint-400);
-    border-radius: 0.75rem;
-    background: var(--color-white);
-    padding: 0.75rem;
-    box-shadow: 0 8px 20px rgb(31 41 55 / 16%);
-  }
-
-  .weekly-time-editor select {
-    height: 2.5rem;
-    border-color: var(--color-grey-200);
-    padding: 0 0.625rem;
   }
 
   .schedule-staff-label {
@@ -1212,6 +1587,22 @@
     box-shadow:
       2px 0 0 var(--color-mint-100),
       4px 0 6px rgb(31 41 55 / 8%);
+  }
+
+  .review-grid
+    tbody
+    tr:hover
+    .schedule-cell.schedule-cell-pto:not(.schedule-cell-selected) {
+    background-color: var(--color-cherry-100) !important;
+    color: var(--color-cherry-600) !important;
+  }
+
+  .review-grid
+    tbody
+    tr:hover
+    .schedule-cell.schedule-cell-oncall:not(.schedule-cell-selected) {
+    background-color: var(--color-grey-900) !important;
+    color: var(--color-white) !important;
   }
 
   .review-grid tbody tr:hover .schedule-name-cell::after {

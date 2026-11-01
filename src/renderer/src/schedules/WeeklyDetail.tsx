@@ -9,15 +9,19 @@ import {
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { Dept, type ScheduleSegment, type WeeklyAssignment, type WeeklySchedule } from '@app/types';
 import { Button } from '../inputs/Button';
+import { TimePicker } from '../inputs/TimePicker';
+import { formatTime } from '../inputs/time';
 import { PageContent } from '../layout/PageContent';
+import { useToast } from '../layout/Toast';
 import { getSegmentWeeks } from '../../../weekly';
 import { PrintFooter } from './PrintFooter';
+import { fmtDept } from '../util';
 
 type SelectedAssignment = {
   key: string;
-  name: string;
-  top: number;
   left: number;
+  name: string;
+  time: string;
 };
 
 const dateLabel = (date: string) =>
@@ -33,25 +37,28 @@ const weekdayLabel = (date: string) =>
     timeZone: 'UTC',
   }).format(new Date(`${date}T00:00:00.000Z`));
 
-const formatTime = (time: string) => {
-  const [hoursText, minutes] = time.split(':');
-  const hours = Number(hoursText);
-  return `${hours % 12 || 12}:${minutes} ${hours >= 12 ? 'PM' : 'AM'}`;
-};
-
-const timeOptions = (currentTime: string) => {
-  const times = new Set<string>();
-  for (let minutes = 6 * 60; minutes <= 10 * 60; minutes += 30) {
-    times.add(
-      `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`,
-    );
-  }
-  times.add(currentTime);
-  return [...times].sort();
-};
-
 const assignmentKey = (assignment: WeeklyAssignment) =>
   `${assignment.date}:${assignment.staffId}`;
+
+const assignmentsEqual = (
+  left: WeeklyAssignment[],
+  right: WeeklyAssignment[],
+) => {
+  if (left.length !== right.length) return false;
+  const sortByKey = (a: WeeklyAssignment, b: WeeklyAssignment) =>
+    assignmentKey(a).localeCompare(assignmentKey(b));
+  const sortedLeft = [...left].sort(sortByKey);
+  const sortedRight = [...right].sort(sortByKey);
+  return sortedLeft.every((assignment, index) => {
+    const saved = sortedRight[index];
+    return (
+      assignmentKey(assignment) === assignmentKey(saved) &&
+      assignment.department === saved.department &&
+      assignment.room === saved.room &&
+      assignment.startTime === saved.startTime
+    );
+  });
+};
 
 const departmentRows = (segment: ScheduleSegment) => [
   { key: `dept-${Dept.PRE}`, label: 'PREOP', department: Dept.PRE, room: null, sectionEnd: true },
@@ -69,6 +76,7 @@ const departmentRows = (segment: ScheduleSegment) => [
 ];
 
 export const WeeklyDetailPage = () => {
+  const toast = useToast();
   const location = useLocation();
   const navigate = useNavigate();
   const { scheduleId, weekStart } = useParams();
@@ -77,12 +85,13 @@ export const WeeklyDetailPage = () => {
   const [assignments, setAssignments] = useState<WeeklyAssignment[]>([]);
   const [draggedAssignmentKey, setDraggedAssignmentKey] = useState<string | null>(null);
   const [dropTargetKey, setDropTargetKey] = useState<string | null>(null);
+  const [invalidDropTargetKey, setInvalidDropTargetKey] = useState<string | null>(
+    null,
+  );
   const [selected, setSelected] = useState<SelectedAssignment | null>(null);
-  const [draftStartTime, setDraftStartTime] = useState('');
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const dashboardActionHandled = useRef(false);
   const navigationState =
     typeof location.state === 'object' && location.state !== null
@@ -152,6 +161,10 @@ export const WeeklyDetailPage = () => {
     [segment],
   );
   const currentWeek = weeks.find((week) => week.start === weekStart) ?? null;
+  const hasChanges = schedule !== null && !assignmentsEqual(
+    assignments,
+    schedule.assignments,
+  );
   const departments = useMemo(
     () => (segment ? departmentRows(segment) : []),
     [segment],
@@ -163,6 +176,12 @@ export const WeeklyDetailPage = () => {
       ),
     [segment],
   );
+  const draggedAssignment = assignments.find(
+    (assignment) => assignmentKey(assignment) === draggedAssignmentKey,
+  );
+  const draggedPerson = draggedAssignment
+    ? staffById.get(draggedAssignment.staffId)
+    : undefined;
   const groupedAssignments = useMemo(() => {
     const groups = new Map<string, WeeklyAssignment[]>();
     for (const department of departments) {
@@ -201,22 +220,20 @@ export const WeeklyDetailPage = () => {
     const bounds = event.currentTarget.getBoundingClientRect();
     setSelected({
       key: assignmentKey(assignment),
+      left: bounds.left,
       name: `${person.firstName} ${person.lastName}`,
-      top: Math.min(bounds.bottom + 8, Math.max(12, window.innerHeight - 190)),
-      left: Math.max(12, Math.min(bounds.left, window.innerWidth - 280)),
+      time: assignment.startTime,
     });
-    setDraftStartTime(assignment.startTime);
-    setNotice(null);
   };
 
   const closeEditor = () => setSelected(null);
 
-  const updateStartTime = () => {
+  const updateStartTime = (startTime: string) => {
     if (!selected) return;
     setAssignments((current) =>
       current.map((assignment) =>
         assignmentKey(assignment) === selected.key
-          ? { ...assignment, startTime: draftStartTime }
+          ? { ...assignment, startTime }
           : assignment,
       ),
     );
@@ -251,6 +268,7 @@ export const WeeklyDetailPage = () => {
     if (!canDropAssignment(key, date, department.department) || !key) {
       setDraggedAssignmentKey(null);
       setDropTargetKey(null);
+      setInvalidDropTargetKey(null);
       return;
     }
 
@@ -265,16 +283,15 @@ export const WeeklyDetailPage = () => {
           : assignment,
       ),
     );
-    setNotice('Assignment updated. Confirm to save your changes.');
     setDraggedAssignmentKey(null);
     setDropTargetKey(null);
+    setInvalidDropTargetKey(null);
   };
 
   const confirmSchedule = async () => {
     if (!schedule) return;
     setIsSaving(true);
     setError(null);
-    setNotice(null);
     try {
       const saved = await window.weeklySchedules.save(
         schedule.id,
@@ -283,13 +300,17 @@ export const WeeklyDetailPage = () => {
       );
       setSchedule(saved);
       setAssignments(saved.assignments);
-      setNotice(null);
+      toast.success(
+        'Weekly schedule confirmed',
+        'Your weekly schedule is up to date.',
+      );
     } catch (saveError: unknown) {
-      setError(
+      const message =
         saveError instanceof Error
           ? saveError.message
-          : 'Unable to save the weekly schedule.',
-      );
+          : 'Unable to save the weekly schedule.';
+      setError(message);
+      toast.failure("Couldn't confirm weekly schedule", message);
     } finally {
       setIsSaving(false);
     }
@@ -400,6 +421,14 @@ export const WeeklyDetailPage = () => {
                     {currentWeek.dates.map((date, index) => {
                       const dayAssignments =
                         groupedAssignments.get(`${department.key}:${date}`) ?? [];
+                      const invalidDepartmentMessage =
+                        draggedAssignment?.date === date &&
+                        draggedPerson &&
+                        !draggedPerson.departments.includes(
+                          department.department,
+                        )
+                          ? `${draggedPerson.firstName} ${draggedPerson.lastName} can't work in ${fmtDept(department.department)}`
+                          : undefined;
                       return (
                         <td
                           key={date}
@@ -410,39 +439,103 @@ export const WeeklyDetailPage = () => {
                               : '',
                           ].filter(Boolean).join(' ')}
                           onDragOver={(event) => {
-                            if (
-                              canDropAssignment(
-                                draggedAssignmentKey,
-                                date,
-                                department.department,
-                              )
-                            ) {
+                            const targetKey = `${department.key}:${date}`;
+                            if (canDropAssignment(draggedAssignmentKey, date, department.department)) {
                               event.preventDefault();
                               event.dataTransfer.dropEffect = 'move';
-                              setDropTargetKey(`${department.key}:${date}`);
+                              setDropTargetKey(targetKey);
+                              setInvalidDropTargetKey(null);
+                            } else if (invalidDepartmentMessage) {
+                              event.dataTransfer.dropEffect = 'none';
+                              setDropTargetKey(null);
+                              setInvalidDropTargetKey(targetKey);
+                            } else {
+                              setDropTargetKey(null);
+                              setInvalidDropTargetKey(null);
                             }
                           }}
                           onDragLeave={(event) => {
-                            if (event.currentTarget === event.target) {
+                            const relatedTarget = event.relatedTarget;
+                            if (
+                              !(relatedTarget instanceof Node) ||
+                              !event.currentTarget.contains(relatedTarget)
+                            ) {
                               setDropTargetKey(null);
+                              setInvalidDropTargetKey(null);
                             }
                           }}
                           onDrop={(event) =>
                             handleAssignmentDrop(event, date, department)
                           }
                         >
-                          <div className="weekly-assignment-list">
+                          <div
+                            className={[
+                              'weekly-assignment-list',
+                              invalidDropTargetKey === `${department.key}:${date}`
+                                ? 'weekly-drop-not-allowed'
+                                : '',
+                            ].filter(Boolean).join(' ')}
+                            data-tooltip={
+                              invalidDropTargetKey === `${department.key}:${date}`
+                                ? invalidDepartmentMessage
+                                : undefined
+                            }
+                          >
                             {dayAssignments.map((assignment) => {
                               const person = staffById.get(assignment.staffId);
                               if (!person) return null;
+                              const key = assignmentKey(assignment);
+                              const personLabel = (
+                                <span className="weekly-assignment-person">
+                                  <span>
+                                    {person.lastName} {person.firstName.slice(0, 1)}.
+                                  </span>
+                                  {person.isLeader && (
+                                    <span
+                                      role="img"
+                                      className="weekly-marker weekly-marker-leader"
+                                      aria-label="Leader"
+                                      title="Leader"
+                                    />
+                                  )}
+                                  {person.inOrientation && (
+                                    <span
+                                      role="img"
+                                      className="weekly-marker weekly-marker-orientation"
+                                      aria-label="In orientation"
+                                      title="In orientation"
+                                    />
+                                  )}
+                                </span>
+                              );
+                              if (selected?.key === key) {
+                                return (
+                                  <div
+                                    key={key}
+                                    className="weekly-assignment weekly-assignment-editing"
+                                  >
+                                    {personLabel}
+                                    <TimePicker
+                                      name="weekly-start-time"
+                                      label={`Start time · ${selected.name}`}
+                                      value={selected.time}
+                                      inline
+                                      openOnMount
+                                      popoverAnchorLeft={selected.left}
+                                      className="weekly-assignment-time time-picker-inline"
+                                      onChange={updateStartTime}
+                                      onCancel={closeEditor}
+                                    />
+                                  </div>
+                                );
+                              }
                               return (
                                 <button
-                                  key={assignmentKey(assignment)}
+                                  key={key}
                                   type="button"
                                   draggable
-                                  className={`weekly-assignment${draggedAssignmentKey === assignmentKey(assignment) ? ' weekly-assignment-dragging' : ''}`}
+                                  className={`weekly-assignment${draggedAssignmentKey === key ? ' weekly-assignment-dragging' : ''}`}
                                   onDragStart={(event) => {
-                                    const key = assignmentKey(assignment);
                                     event.dataTransfer.setData('text/plain', key);
                                     event.dataTransfer.effectAllowed = 'move';
                                     setDraggedAssignmentKey(key);
@@ -451,31 +544,12 @@ export const WeeklyDetailPage = () => {
                                   onDragEnd={() => {
                                     setDraggedAssignmentKey(null);
                                     setDropTargetKey(null);
+                                    setInvalidDropTargetKey(null);
                                   }}
                                   onClick={(event) => openEditor(event, assignment)}
                                   aria-label={`Edit ${person.firstName} ${person.lastName} start time for ${weekdayLabel(date)}, ${dateLabel(date)}`}
                                 >
-                                  <span className="weekly-assignment-person">
-                                    <span>
-                                      {person.lastName} {person.firstName.slice(0, 1)}.
-                                    </span>
-                                    {person.isLeader && (
-                                      <span
-                                        role="img"
-                                        className="weekly-marker weekly-marker-leader"
-                                        aria-label="Leader"
-                                        title="Leader"
-                                      />
-                                    )}
-                                    {person.inOrientation && (
-                                      <span
-                                        role="img"
-                                        className="weekly-marker weekly-marker-orientation"
-                                        aria-label="In orientation"
-                                        title="In orientation"
-                                      />
-                                    )}
-                                  </span>
+                                  {personLabel}
                                   <span className="weekly-assignment-time">
                                     {formatTime(assignment.startTime)}
                                   </span>
@@ -491,11 +565,13 @@ export const WeeklyDetailPage = () => {
               </tbody>
             </table>
           </div>
-
           {error && <p role="alert">{error}</p>}
-          {notice && <p role="status">{notice}</p>}
+          {error && <p role="alert">{error}</p>}
           <div className="weekly-print-actions flex justify-end">
-            <Button onClick={() => void confirmSchedule()} disabled={isSaving}>
+            <Button
+              onClick={() => void confirmSchedule()}
+              disabled={isSaving || !hasChanges}
+            >
               {isSaving ? 'Saving…' : 'Confirm'}
             </Button>
           </div>
@@ -505,48 +581,6 @@ export const WeeklyDetailPage = () => {
         <p role="alert">{error ?? 'This weekly schedule could not be found.'}</p>
       )}
 
-      {selected && (
-        <div
-          className="weekly-editor-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) closeEditor();
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') closeEditor();
-          }}
-        >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Edit start time for ${selected.name}`}
-            className="weekly-time-editor"
-            style={{ top: selected.top, left: selected.left }}
-          >
-            <label className="flex flex-col gap-2 text-sm font-bold text-grey-900">
-              Start time · {selected.name}
-              <select
-                autoFocus
-                value={draftStartTime}
-                onChange={(event) => setDraftStartTime(event.target.value)}
-              >
-                {timeOptions(draftStartTime).map((time) => (
-                  <option key={time} value={time}>
-                    {formatTime(time)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <div className="flex justify-end gap-2">
-              <Button variant="outlined" onClick={closeEditor} className="min-h-9 px-3 text-sm">
-                Cancel
-              </Button>
-              <Button onClick={updateStartTime} className="min-h-9 px-3 text-sm">
-                Done
-              </Button>
-            </div>
-          </section>
-        </div>
-      )}
     </PageContent>
   );
 };

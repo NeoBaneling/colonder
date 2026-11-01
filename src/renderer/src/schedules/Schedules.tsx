@@ -4,6 +4,7 @@ import type { ScheduleSegment } from '../../../types';
 import { IconButton } from '../inputs/IconButton';
 import { Dialog } from '../layout/Dialog';
 import { PageContent } from '../layout/PageContent';
+import { useToast } from '../layout/Toast';
 
 const dateLabel = (date: string) =>
   new Intl.DateTimeFormat('en-US', {
@@ -15,6 +16,7 @@ const dateLabel = (date: string) =>
 
 const SchedulesPage = () => {
   const navigate = useNavigate();
+  const toast = useToast();
   const location = useLocation();
   const [segments, setSegments] = useState<ScheduleSegment[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -66,12 +68,14 @@ const SchedulesPage = () => {
       );
       setDraftToDelete(null);
       setDeleteError(null);
+      toast.success('Draft deleted', 'The schedule draft was removed.');
     } catch (error) {
-      setDeleteError(
+      const message =
         error instanceof Error
           ? error.message
-          : 'Unable to delete schedule draft.',
-      );
+          : 'Unable to delete schedule draft.';
+      setDeleteError(message);
+      toast.failure("Couldn't delete schedule draft", message);
     }
   };
 
@@ -111,7 +115,7 @@ const SchedulesPage = () => {
                   <th>Schedule</th>
                   <th>Status</th>
                   <th>Staff</th>
-                  <th aria-label="Actions" />
+                  <th aria-label="Actions" className="w-24 min-w-24" />
                 </tr>
               </thead>
               <tbody>
@@ -137,7 +141,7 @@ const SchedulesPage = () => {
                       </span>
                     </td>
                     <td>{segment.state.staffSnapshot.length}</td>
-                    <td>
+                    <td className="w-24 min-w-24">
                       {segment.status === 'draft' && (
                         <div className="flex flex-wrap gap-2">
                           <IconButton

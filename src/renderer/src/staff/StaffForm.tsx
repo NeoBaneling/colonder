@@ -7,6 +7,7 @@ import { TextField } from '../inputs/TextField';
 import { Toggle } from '../inputs/Toggle';
 import { Dialog } from '../layout/Dialog';
 import { PageContent } from '../layout/PageContent';
+import { useToast } from '../layout/Toast';
 import { IpcField } from './IpcField';
 import {
   formToStaff,
@@ -33,6 +34,7 @@ const emptyStaff: StaffFormData = {
 export const StaffForm = () => {
   const { staffId } = useParams();
   const navigate = useNavigate();
+  const toast = useToast();
   const isNew = staffId === 'new';
   const [staff, setStaff] = useState<Staff | null>(null);
   const [staffList, setStaffList] = useState<Staff[] | null>(null);
@@ -94,11 +96,16 @@ export const StaffForm = () => {
     try {
       const deleted = await window.staff.delete(staff.id);
       if (!deleted) throw new Error('This staff member no longer exists.');
+      toast.success(
+        'Staff removed',
+        `${staff.firstName} ${staff.lastName} is no longer on the staff list.`,
+      );
       navigate('/staff', { replace: true });
     } catch (error) {
-      setDeleteError(
-        error instanceof Error ? error.message : 'Unable to delete staff.',
-      );
+      const message =
+        error instanceof Error ? error.message : 'Unable to delete staff.';
+      setDeleteError(message);
+      toast.failure("Couldn't delete staff", message);
     }
   };
 
@@ -149,13 +156,15 @@ export const StaffForm = () => {
                 } else {
                   await window.staff.create(formToStaff(values));
                 }
+                toast.success('Staff saved', 'All clear, no blockages.');
                 navigate('/staff');
               } catch (error) {
-                setStatus(
+                const message =
                   error instanceof Error
                     ? error.message
-                    : 'Unable to save staff.',
-                );
+                    : 'Unable to save staff.';
+                setStatus(message);
+                toast.failure("Couldn't save staff", message);
               }
             }}
           >
@@ -237,15 +246,27 @@ export const StaffForm = () => {
                     <div className="flex flex-1 flex-col gap-2">
                       <label>Departments trained</label>
                       <div className="flex flex-row gap-2">
-                        <Toggle name="isProc" label="PROC" />
+                        <Toggle
+                          name="isProc"
+                          label="PROC"
+                          validateOnChange
+                        />
                         <label>PROC</label>
                       </div>
                       <div className="flex flex-row gap-2">
-                        <Toggle name="isPacu" label="PACU" />
+                        <Toggle
+                          name="isPacu"
+                          label="PACU"
+                          validateOnChange
+                        />
                         <label>PACU</label>
                       </div>
                       <div className="flex flex-row gap-2">
-                        <Toggle name="isPreop" label="PRE" />
+                        <Toggle
+                          name="isPreop"
+                          label="PRE"
+                          validateOnChange
+                        />
                         <label>PRE</label>
                       </div>
                       <p
@@ -271,11 +292,19 @@ export const StaffForm = () => {
                     <div className="flex flex-1 flex-col gap-2">
                       <label>Staff settings (optional)</label>
                       <div className="flex flex-row gap-2">
-                        <Toggle name="isLeader" label="Leader" />
+                        <Toggle
+                          name="isLeader"
+                          label="Leader"
+                          validateOnChange
+                        />
                         <label>Leader</label>
                       </div>
                       <div className="flex flex-row gap-2">
-                        <Toggle name="inOrientation" label="In orientation" />
+                        <Toggle
+                          name="inOrientation"
+                          label="In orientation"
+                          validateOnChange
+                        />
                         <label>In orientation</label>
                       </div>
                       <p

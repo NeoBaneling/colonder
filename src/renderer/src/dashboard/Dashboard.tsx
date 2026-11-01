@@ -6,12 +6,15 @@ import {
   type Settings,
   type WeeklySchedule,
 } from '@app/types';
-import { getSegmentWeeks } from '../../../weekly';
-import Logo from '../assets/logo.svg?react';
-import { Button } from '../inputs/Button';
+import {
+  getCalendarWeekRange,
+  getSegmentCalendarRange,
+  getSegmentWeeks,
+} from '../../../weekly';
 import { nextWorkingStart, segmentEndDate } from '../generator/engine';
 import { IconButton } from '../inputs/IconButton';
 import { PageContent } from '../layout/PageContent';
+import { TeamWelcome } from './TeamWelcome';
 
 const dateLabel = (value: string, includeYear = false) =>
   new Intl.DateTimeFormat('en-US', {
@@ -73,6 +76,7 @@ const Dashboard = () => {
   const [staffCount, setStaffCount] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(new Date()), 60_000);
@@ -92,11 +96,12 @@ const Dashboard = () => {
         ]);
         const current = savedSegments
           .filter(
-            (item) =>
-              item.status === 'confirmed' &&
-              item.startDate <= today &&
-              item.endDate >= today,
+            (item) => item.status === 'confirmed',
           )
+          .filter((item) => {
+            const range = getSegmentCalendarRange(item);
+            return range !== null && today >= range.start && today <= range.end;
+          })
           .sort((a, b) => b.startDate.localeCompare(a.startDate))[0] ?? null;
         const upcomingWeek = nextWeeklyPeriod(savedSegments, today);
         const relevantSegmentIds = new Set(
@@ -138,16 +143,10 @@ const Dashboard = () => {
     [segment],
   );
   const currentWeekIndex = segment
-    ? Math.max(
-        0,
-        weeks.findIndex((week, index) => {
-          const nextWeekStart = weeks[index + 1]?.start;
-          return (
-            today >= week.start &&
-            (nextWeekStart ? today < nextWeekStart : today <= segment.endDate)
-          );
-        }),
-      )
+    ? weeks.findIndex((week) => {
+        const range = getCalendarWeekRange(week.start);
+        return today >= range.start && today <= range.end;
+      })
     : -1;
   const currentWeek = weeks[currentWeekIndex] ?? null;
   const savedWeeklySchedule = weeklySchedules.find(
@@ -196,7 +195,14 @@ const Dashboard = () => {
   const upcomingCardsCount = Number(showNextSixWeek) + Number(showNextWeekly);
 
   const todaySummary = useMemo(() => {
-    if (!segment) return null;
+    if (
+      !segment ||
+      !segment.state.settingsSnapshot.workingDays[
+        new Date(`${today}T00:00:00.000Z`).getUTCDay()
+      ]
+    ) {
+      return null;
+    }
     const workingStaffIds = new Set(
       segment.state.shifts
         .filter((shift) => shift.date === today && shift.kind === 'work')
@@ -223,12 +229,24 @@ const Dashboard = () => {
   }, [savedWeeklySchedule, segment, today]);
 
   const greeting = `Good ${getTimeOfDay(now.getHours())}`;
-  const routeToScheduleAction = (
+  const runScheduleAction = async (
+    segmentId: number,
     filename: string,
-    route: string,
     action: 'print' | 'download',
+    weekStart?: string,
   ) => {
-    navigate(route, { state: { dashboardAction: action, filename } });
+    setActionError(null);
+    try {
+      if (action === 'print') {
+        await window.schedules.print(segmentId, weekStart);
+      } else {
+        await window.schedules.exportPdf(segmentId, filename, weekStart);
+      }
+    } catch (error: unknown) {
+      setActionError(
+        error instanceof Error ? error.message : 'Unable to print or download the schedule.',
+      );
+    }
   };
 
   return (
@@ -246,19 +264,10 @@ const Dashboard = () => {
       ) : isLoading ? (
         <p role="status">Loading current schedules…</p>
       ) : staffCount === 0 ? (
-        <div className="card w-full max-w-2xl items-center justify-center gap-4 py-10 text-center sm:py-14">
-          <Logo aria-hidden="true" className="h-20 w-20" />
-          <h2 className="text-xl! text-mint-600">Let’s meet the team</h2>
-          <p className="text-sm!">
-            Add your staff and Colonder can start building schedules.
-          </p>
-          <Button onClick={() => navigate('/staff/new')}>
-            <i className="bi bi-plus-lg mr-2" aria-hidden="true" />
-            Add staff
-          </Button>
-        </div>
+        <TeamWelcome onAddStaff={() => navigate('/staff/new')} />
       ) : (
         <>
+          {actionError && <p role="alert">{actionError}</p>}
           {upcomingCardsCount > 0 && (
             <section className="flex flex-col gap-3" aria-labelledby="up-next-heading">
               <h2 id="up-next-heading">Up next</h2>
@@ -324,7 +333,7 @@ const Dashboard = () => {
           {!segment || !currentWeek ? (
             <div className="card w-full items-start">
               <h2>No current six-week schedule</h2>
-              <p>There is no confirmed schedule covering today.</p>
+              <p>There is no confirmed schedule covering this calendar week.</p>
             </div>
           ) : (
             <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2">
@@ -345,9 +354,9 @@ const Dashboard = () => {
                   icon="bi-printer"
                   variant="outlined"
                   onClick={() =>
-                    routeToScheduleAction(
+                    void runScheduleAction(
+                      segment.id,
                       `Schedule ${segment.startDate} - ${segment.endDate}.pdf`,
-                      `/schedules/${segment.id}`,
                       'print',
                     )
                   }
@@ -358,9 +367,9 @@ const Dashboard = () => {
                   icon="bi-download"
                   variant="outlined"
                   onClick={() =>
-                    routeToScheduleAction(
+                    void runScheduleAction(
+                      segment.id,
                       `Schedule ${segment.startDate} - ${segment.endDate}.pdf`,
-                      `/schedules/${segment.id}`,
                       'download',
                     )
                   }
@@ -415,10 +424,11 @@ const Dashboard = () => {
                   icon="bi-printer"
                   variant="outlined"
                   onClick={() =>
-                    routeToScheduleAction(
+                    void runScheduleAction(
+                      segment.id,
                       `Weekly schedule ${currentWeek.start} - ${currentWeek.end}.pdf`,
-                      `/schedules/${segment.id}/weekly/${currentWeek.start}`,
                       'print',
+                      currentWeek.start,
                     )
                   }
                 />
@@ -428,10 +438,11 @@ const Dashboard = () => {
                   icon="bi-download"
                   variant="outlined"
                   onClick={() =>
-                    routeToScheduleAction(
+                    void runScheduleAction(
+                      segment.id,
                       `Weekly schedule ${currentWeek.start} - ${currentWeek.end}.pdf`,
-                      `/schedules/${segment.id}/weekly/${currentWeek.start}`,
                       'download',
+                      currentWeek.start,
                     )
                   }
                 />
@@ -461,9 +472,9 @@ const Dashboard = () => {
               ))}
             </div>
             <p className="text-sm text-grey-600">
-              {todaySummary
+              {todaySummary && currentWeek.dates.includes(today)
                 ? `Today: ${todaySummary.nurses} nurses and ${todaySummary.techs} techs. First start ${todaySummary.firstStart ?? 'not scheduled'}.`
-                : 'No staffing details are available for today.'}
+                : null}
             </p>
           </section>
             </div>

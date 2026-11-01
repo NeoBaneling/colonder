@@ -17,6 +17,20 @@ const nextDate = (date: string): string => {
   return value.toISOString().slice(0, 10);
 };
 
+const dateAfter = (date: string, days: number): string => {
+  const value = new Date(`${date}T00:00:00.000Z`);
+  value.setUTCDate(value.getUTCDate() + days);
+  return value.toISOString().slice(0, 10);
+};
+
+export const getCalendarWeekRange = (
+  date: string,
+): { start: string; end: string } => {
+  const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+  const start = dateAfter(date, -day);
+  return { start, end: dateAfter(start, 6) };
+};
+
 export const getSegmentWeeks = (segment: ScheduleSegment): SegmentWeek[] => {
   const dates: string[] = [];
   const settings = segment.state.settingsSnapshot;
@@ -36,6 +50,17 @@ export const getSegmentWeeks = (segment: ScheduleSegment): SegmentWeek[] => {
     weeks.push({ start: days[0], end: days[days.length - 1], dates: days });
   }
   return weeks;
+};
+
+export const getSegmentCalendarRange = (
+  segment: ScheduleSegment,
+): { start: string; end: string } | null => {
+  const weeks = getSegmentWeeks(segment);
+  if (weeks.length === 0) return null;
+  return {
+    start: getCalendarWeekRange(weeks[0].start).start,
+    end: getCalendarWeekRange(weeks[weeks.length - 1].end).end,
+  };
 };
 
 export const getChangedWeekStarts = (

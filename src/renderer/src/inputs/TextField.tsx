@@ -1,4 +1,5 @@
 import { useField } from 'formik';
+import { TimePicker } from './TimePicker';
 
 type TextFieldProps = {
   name: string;
@@ -15,6 +16,23 @@ export const TextField = ({
 }: TextFieldProps) => {
   const [field, meta, helpers] = useField(name);
   const error = meta.touched ? meta.error : undefined;
+
+  if (type === 'time') {
+    return (
+      <TimePicker
+        name={name}
+        label={label}
+        value={String(field.value ?? '')}
+        error={error}
+        reserveErrorSpace={reserveErrorSpace}
+        onChange={(value) => void helpers.setValue(value)}
+        onBlur={() => void helpers.setTouched(true)}
+        onValidationError={(validationError) =>
+          helpers.setError(validationError ?? undefined)
+        }
+      />
+    );
+  }
 
   return (
     <div className="flex flex-1 flex-col gap-1">

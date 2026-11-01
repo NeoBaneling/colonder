@@ -381,6 +381,60 @@ function createWindow(): void {
   }
 }
 
+const createSchedulePrintWindow = async (
+  segmentId: number,
+  weekStart?: string,
+) => {
+  if (!Number.isSafeInteger(segmentId) || segmentId < 1) {
+    throw new TypeError('A valid schedule is required.');
+  }
+  if (
+    weekStart !== undefined &&
+    !/^\d{4}-\d{2}-\d{2}$/.test(weekStart)
+  ) {
+    throw new TypeError('A valid schedule week is required.');
+  }
+  const route = weekStart
+    ? `/schedules/${segmentId}/weekly/${weekStart}`
+    : `/schedules/${segmentId}`;
+  const printWindow = new BrowserWindow({
+    width: 1280,
+    height: 760,
+    show: false,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  try {
+    await printWindow.loadFile(join(__dirname, '../renderer/index.html'), {
+      hash: route,
+    });
+    await printWindow.webContents.executeJavaScript(
+      `new Promise((resolve, reject) => {
+        const startedAt = Date.now();
+        const check = () => {
+          if (document.querySelector('${weekStart ? '.weekly-print-page' : '.history-details-grid'}')) {
+            resolve(true);
+          } else if (document.querySelector('#root [role="alert"]')) {
+            reject(new Error('Unable to render the selected schedule.'));
+          } else if (Date.now() - startedAt > 15000) {
+            reject(new Error('Timed out while preparing the schedule for printing.'));
+          } else {
+            window.setTimeout(check, 50);
+          }
+        };
+        check();
+      })`,
+    );
+    return printWindow;
+  } catch (error) {
+    printWindow.destroy();
+    throw error;
+  }
+};
+
 app.whenReady().then(() => {
   if (
     process.env.COLONDER_E2E_HEADLESS === '1' &&
@@ -873,6 +927,66 @@ app.whenReady().then(() => {
         footerTemplate: '<div></div>',
       });
       await writeFile(filePath, pdf);
+      return { canceled: false };
+    },
+  );
+  ipcMain.handle(
+    'schedules:print',
+    async (event, segmentId: number, weekStart?: string) => {
+      if (!BrowserWindow.fromWebContents(event.sender)) {
+        throw new Error('The application window is unavailable.');
+      }
+      const printWindow = await createSchedulePrintWindow(segmentId, weekStart);
+      try {
+        await new Promise<void>((resolve, reject) => {
+          printWindow.webContents.print(
+            { silent: false, printBackground: true },
+            (success, failureReason) => {
+              if (success) resolve();
+              else reject(new Error(failureReason || 'Unable to print the schedule.'));
+            },
+          );
+        });
+      } finally {
+        printWindow.destroy();
+      }
+    },
+  );
+  ipcMain.handle(
+    'schedules:export-pdf',
+    async (
+      event,
+      segmentId: number,
+      filename: string,
+      weekStart?: string,
+    ): Promise<{ canceled: boolean }> => {
+      if (typeof filename !== 'string' || filename.trim().length === 0) {
+        throw new TypeError('A PDF filename is required.');
+      }
+      const ownerWindow = BrowserWindow.fromWebContents(event.sender);
+      if (!ownerWindow) throw new Error('The application window is unavailable.');
+      const safeName = basename(filename).replace(/[^a-zA-Z0-9._ -]/g, '_');
+      const { canceled, filePath } = await dialog.showSaveDialog(ownerWindow, {
+        title: 'Download schedule',
+        defaultPath: safeName.endsWith('.pdf') ? safeName : `${safeName}.pdf`,
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      });
+      if (canceled || !filePath) return { canceled: true };
+
+      const printWindow = await createSchedulePrintWindow(segmentId, weekStart);
+      try {
+        const pdf = await printWindow.webContents.printToPDF({
+          printBackground: true,
+          landscape: true,
+          preferCSSPageSize: true,
+          displayHeaderFooter: true,
+          headerTemplate: '<div></div>',
+          footerTemplate: '<div></div>',
+        });
+        await writeFile(filePath, pdf);
+      } finally {
+        printWindow.destroy();
+      }
       return { canceled: false };
     },
   );
