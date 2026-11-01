@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Formik, Form, FieldArray } from 'formik';
 import type { Settings } from '@app/types';
+import { useNavigate } from 'react-router';
 import { Button } from '../inputs/Button';
 import { PageContent } from '../layout/PageContent';
+import { useToast } from '../layout/Toast';
 import { DayControl } from './DayControl';
 import { TextField } from '../inputs/TextField';
 import { settingsFormSchema } from './util';
@@ -10,6 +12,8 @@ import { settingsFormSchema } from './util';
 const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 const SettingsPage = () => {
+  const navigate = useNavigate();
+  const toast = useToast();
   const [initialValues, setInitialValues] = useState<Settings | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -51,12 +55,15 @@ const SettingsPage = () => {
             try {
               const savedSettings = await window.settings.save(values);
               resetForm({ values: savedSettings });
+              toast.success('Settings saved', 'Your settings are up to date.');
+              navigate('/');
             } catch (error) {
-              setStatus(
+              const message =
                 error instanceof Error
                   ? error.message
-                  : 'Unable to save settings.',
-              );
+                  : 'Unable to save settings.';
+              setStatus(message);
+              toast.failure("Couldn't save settings", message);
             }
           }}
         >

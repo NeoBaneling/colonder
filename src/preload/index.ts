@@ -53,6 +53,14 @@ contextBridge.exposeInMainWorld('segments', {
 contextBridge.exposeInMainWorld('schedules', {
   downloadPdf: (filename: string): Promise<{ canceled: boolean }> =>
     ipcRenderer.invoke('schedules:download-pdf', filename),
+  print: (segmentId: number, weekStart?: string): Promise<void> =>
+    ipcRenderer.invoke('schedules:print', segmentId, weekStart),
+  exportPdf: (
+    segmentId: number,
+    filename: string,
+    weekStart?: string,
+  ): Promise<{ canceled: boolean }> =>
+    ipcRenderer.invoke('schedules:export-pdf', segmentId, filename, weekStart),
 });
 
 contextBridge.exposeInMainWorld('weeklySchedules', {

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { Dept, Emp, Role, type ScheduleSegment, type Staff } from './types';
 import {
   generateWeeklyAssignments,
+  getCalendarWeekRange,
   getChangedWeekStarts,
+  getSegmentCalendarRange,
   getSegmentWeeks,
 } from './weekly';
 
@@ -58,6 +60,28 @@ const segment: ScheduleSegment = {
 };
 
 describe('weekly schedule generation', () => {
+  it('uses Sunday-through-Saturday calendar weeks for schedule periods', () => {
+    expect(getCalendarWeekRange('2026-11-01')).toEqual({
+      start: '2026-11-01',
+      end: '2026-11-07',
+    });
+
+    const novemberSegment: ScheduleSegment = {
+      ...segment,
+      startDate: '2026-11-02',
+      endDate: '2026-12-11',
+      state: {
+        ...segment.state,
+        startDate: '2026-11-02',
+        endDate: '2026-12-11',
+      },
+    };
+    expect(getSegmentCalendarRange(novemberSegment)).toEqual({
+      start: '2026-11-01',
+      end: '2026-12-12',
+    });
+  });
+
   it('splits a confirmed segment into its six five-day weeks', () => {
     const weeks = getSegmentWeeks(segment);
     expect(weeks).toHaveLength(6);

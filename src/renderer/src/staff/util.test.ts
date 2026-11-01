@@ -57,4 +57,19 @@ describe('staffFormSchema', () => {
       validStaffForm,
     );
   });
+
+  it('accepts start times at any minute', async () => {
+    await expect(
+      staffFormSchema.validate({ ...validStaffForm, startTime: '07:15' }),
+    ).resolves.toMatchObject({ startTime: '07:15' });
+  });
+
+  it('rejects invalid start times', async () => {
+    await expect(
+      staffFormSchema.validate({ ...validStaffForm, startTime: '07:60' }),
+    ).rejects.toMatchObject({
+      path: 'startTime',
+      message: 'Enter a valid time',
+    });
+  });
 });

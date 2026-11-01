@@ -18,13 +18,15 @@ import {
   type ScheduleSegment,
   type SegmentState,
   type SegmentStep,
-  type SegmentWarning,
   type Settings,
   type Staff,
 } from '../../../types';
 import { Button } from '../inputs/Button';
+import { IconButton } from '../inputs/IconButton';
 import { Dialog } from '../layout/Dialog';
 import { PageContent } from '../layout/PageContent';
+import { useToast } from '../layout/Toast';
+import { TeamWelcome } from '../dashboard/TeamWelcome';
 import {
   cellKey,
   dailyCounts,
@@ -248,10 +250,9 @@ const InputGrid = ({
   );
 };
 
-const warningLabel = (warning: SegmentWarning) => warning.message;
-
 const GeneratorPage = () => {
   const navigate = useNavigate();
+  const toast = useToast();
   const [searchParams] = useSearchParams();
   const { scheduleId: editParam } = useParams();
   const draftParam = searchParams.get('draft');
@@ -459,9 +460,6 @@ const GeneratorPage = () => {
         : [],
     [dates, state],
   );
-  const offTargetDays = warnings.filter(
-    (warning) => warning.code === 'DAY_UNDER_TARGET',
-  ).length;
   const reviewCounts = state
     ? dates.map((date) =>
         dailyCounts(date, state.staffSnapshot, state.shifts),
@@ -657,10 +655,24 @@ const GeneratorPage = () => {
         ...current.filter((segment) => segment.id !== confirmed.id),
       ]);
       setShowConfirm(false);
+      toast.success(
+        editScheduleId !== null ? 'Schedule saved' : 'Schedule confirmed',
+        editScheduleId !== null
+          ? 'Your schedule changes are saved.'
+          : 'Saved to History. Smooth sailing.',
+      );
       navigate(`/schedules/${confirmed.id}`);
     } catch (reason) {
-      setSavingError(
-        reason instanceof Error ? reason.message : 'Unable to confirm this schedule.',
+      const message =
+        reason instanceof Error
+          ? reason.message
+          : 'Unable to confirm this schedule.';
+      setSavingError(message);
+      toast.failure(
+        editScheduleId !== null
+          ? "Couldn't save schedule"
+          : "Couldn't confirm schedule",
+        message,
       );
     } finally {
       setIsWorking(false);
@@ -676,11 +688,15 @@ const GeneratorPage = () => {
         await window.segments.deleteDraft(idToDelete);
       }
     } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : 'Unable to delete schedule draft.',
-      );
+      const message =
+        reason instanceof Error
+          ? reason.message
+          : 'Unable to delete schedule draft.';
+      setError(message);
+      toast.failure("Couldn't delete schedule draft", message);
       return;
     }
+    toast.success('Draft discarded', 'The schedule draft was removed.');
     if (draftCreation.current) draftCreation.current = null;
     setShowDiscard(false);
     if (blocker.state === 'blocked') blocker.proceed();
@@ -706,12 +722,16 @@ const GeneratorPage = () => {
       setSavingError(null);
       setError(null);
       setShowDiscard(false);
+      toast.success('Schedule saved', 'Draft saved. You can pick up where you left off.');
       if (blocker.state === 'blocked') blocker.proceed();
       else navigate('/schedules');
     } catch (reason) {
-      setError(
-        reason instanceof Error ? reason.message : 'Unable to save schedule draft.',
-      );
+      const message =
+        reason instanceof Error
+          ? reason.message
+          : 'Unable to save schedule draft.';
+      setError(message);
+      toast.failure("Couldn't save schedule", message);
     } finally {
       setIsWorking(false);
     }
@@ -728,6 +748,13 @@ const GeneratorPage = () => {
     return (
       <PageContent title="Create Schedule">
         <p role="status">Loading schedule data…</p>
+      </PageContent>
+    );
+  }
+  if (staff.length === 0) {
+    return (
+      <PageContent title="Create Schedule">
+        <TeamWelcome onAddStaff={() => navigate('/staff/new')} />
       </PageContent>
     );
   }
@@ -754,7 +781,6 @@ const GeneratorPage = () => {
                   ['Input', 'bi-pencil'],
                   ['Generate', 'bi-arrow-repeat'],
                   ['Review', 'bi-eye'],
-                  ['Confirm', 'bi-check-lg'],
                 ].map(([label, icon], index) => {
                   const currentIndex =
                     activeStep === 'pto' || activeStep === 'prn'
@@ -816,7 +842,9 @@ const GeneratorPage = () => {
               {error && <p role="alert" className="text-sm! text-cherry-600">{error}</p>}
               {savingError && <p role="alert" className="text-sm! text-cherry-600">{savingError}</p>}
               <div className="flex flex-wrap justify-between gap-2">
-                <Button
+                <IconButton
+                  ariaLabel="Back"
+                  icon="bi-chevron-left"
                   variant="outlined"
                   onClick={() => {
                     setError(null);
@@ -831,12 +859,20 @@ const GeneratorPage = () => {
                       void discardDraft();
                     }
                   }}
-                >
-                  Back
-                </Button>
-                <Button onClick={() => (view === 'pto' ? nextFromPto() : runGeneration(state))}>
-                  {view === 'pto' ? (prnStaff.length ? 'Next' : 'Generate') : 'Generate'}
-                </Button>
+                />
+                {view === 'pto' && prnStaff.length > 0 ? (
+                  <Button onClick={nextFromPto}>Next</Button>
+                ) : (
+                  <IconButton
+                    ariaLabel="Generate"
+                    title="Generate schedule"
+                    icon="bi-arrow-repeat"
+                    variant="filled"
+                    onClick={() =>
+                      view === 'pto' ? nextFromPto() : runGeneration(state)
+                    }
+                  />
+                )}
               </div>
             </>
           )}
@@ -856,13 +892,6 @@ const GeneratorPage = () => {
             <>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  {warnings.length > 0 && (
-                    <span className="chip error">
-                      {offTargetDays > 0
-                        ? `${offTargetDays} ${offTargetDays === 1 ? 'day' : 'days'} off target`
-                        : `${warnings.length} ${warnings.length === 1 ? 'warning' : 'warnings'}`}
-                    </span>
-                  )}
                   {selectedWork && !onCallMode && (
                     <span className="text-sm">
                       Choose an off day in the same week to swap. Esc cancels.
@@ -870,31 +899,44 @@ const GeneratorPage = () => {
                   )}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <Button
+                  <IconButton
+                    ariaLabel="On-call mode"
+                    title="Toggle on-call mode"
+                    icon="bi-telephone"
                     variant={onCallMode ? 'filled' : 'outlined'}
                     onClick={() => {
                       setOnCallMode((value) => !value);
                       setSelectedWork(null);
                     }}
-                  >
-                    <i className="bi bi-telephone mr-2" />
-                    On-call
-                  </Button>
-                  <Button variant="outlined" disabled={undoStack.length === 0} onClick={undo}>
-                    Undo
-                  </Button>
-                  <Button variant="outlined" disabled={redoStack.length === 0} onClick={redo}>
-                    Redo
-                  </Button>
-                  {editScheduleId === null && <Button
+                  />
+                  <IconButton
+                    ariaLabel="Undo"
+                    title="Undo last change"
+                    icon="bi-arrow-counterclockwise"
                     variant="outlined"
-                    onClick={() => {
-                      if (state.hasManualEdits) setShowRegenerate(true);
-                      else runGeneration(state);
-                    }}
-                  >
-                    Regenerate
-                  </Button>}
+                    disabled={undoStack.length === 0}
+                    onClick={undo}
+                  />
+                  <IconButton
+                    ariaLabel="Redo"
+                    title="Redo last undone change"
+                    icon="bi-arrow-clockwise"
+                    variant="outlined"
+                    disabled={redoStack.length === 0}
+                    onClick={redo}
+                  />
+                  {editScheduleId === null && (
+                    <IconButton
+                      ariaLabel="Regenerate"
+                      title="Regenerate schedule"
+                      icon="bi-arrow-repeat"
+                      variant="outlined"
+                      onClick={() => {
+                        if (state.hasManualEdits) setShowRegenerate(true);
+                        else runGeneration(state);
+                      }}
+                    />
+                  )}
                 </div>
               </div>
 
@@ -955,6 +997,7 @@ const GeneratorPage = () => {
                               item.kind === 'work',
                           );
                           const isOnCall = state.onCall.includes(key);
+                          const showPto = isPto && !onCallMode;
                           const isSelected =
                             selectedWork?.staffId === person.id &&
                             selectedWork.date === date;
@@ -974,7 +1017,7 @@ const GeneratorPage = () => {
                           const enabled = isPrn
                             ? false
                             : onCallMode
-                            ? !person.inOrientation && !isPto && !shift
+                            ? !person.inOrientation && !isPto && shift !== undefined
                             : selectedWork
                               ? isSwapTarget || canSelect
                               : canSelect;
@@ -996,9 +1039,9 @@ const GeneratorPage = () => {
                                 disabled={!enabled}
                                 data-grid-row={rowIndex}
                                 data-grid-column={columnIndex}
-                                className={`schedule-cell ${isPto ? 'schedule-cell-pto' : ''} ${shift ? 'schedule-cell-work' : ''} ${isOnCall ? 'schedule-cell-oncall' : ''} ${isSelected ? 'schedule-cell-selected' : ''} ${isSwapTarget ? 'schedule-cell-target' : ''} ${isPrn ? 'schedule-cell-disabled' : ''}`}
+                                className={`schedule-cell ${showPto ? 'schedule-cell-pto' : ''} ${shift ? 'schedule-cell-work' : ''} ${isOnCall ? 'schedule-cell-oncall' : ''} ${isSelected ? 'schedule-cell-selected' : ''} ${isSwapTarget ? 'schedule-cell-target' : ''} ${isPrn ? 'schedule-cell-disabled' : ''}`}
                                 onClick={() => {
-                                  if (onCallMode && !isPto && !shift) {
+                                  if (onCallMode && !isPto && shift) {
                                     toggleOnCall(person.id, date);
                                   } else if (isSwapTarget && selectedWork) {
                                     makeSwap(selectedWork.staffId, selectedWork.date, date);
@@ -1014,7 +1057,7 @@ const GeneratorPage = () => {
                                   moveGridFocus(event, rowIndex, columnIndex)
                                 }
                               >
-                                {isPto ? 'P' : isOnCall ? 'OC' : shift ? 'W' : '–'}
+                                {showPto ? 'P' : isOnCall ? 'OC' : shift ? 'W' : '–'}
                               </button>
                             </td>
                           );
@@ -1053,34 +1096,13 @@ const GeneratorPage = () => {
                 <p className="text-sm!">
                   W work · – off · P PTO · OC on-call. Counts exclude orientation staff. Select a workday, then a highlighted off day to swap.
                 </p>
-                {warnings.length > 0 && (
-                  <section className="schedule-warnings" aria-label="Schedule warnings">
-                    <h2 className="text-base!">Warnings</h2>
-                    <ul>
-                      {warnings.map((warning, index) => (
-                        <li key={`${warning.code}-${warning.date}-${warning.staffId}-${index}`}>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (warning.date) {
-                                document
-                                  .getElementById(`day-${warning.date}`)
-                                  ?.scrollIntoView({ block: 'nearest', inline: 'center' });
-                              }
-                            }}
-                          >
-                            {warningLabel(warning)}
-                          </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                )}
               </div>
 
               {savingError && <p role="alert" className="text-sm! text-cherry-600">{savingError}</p>}
               <div className="flex flex-wrap justify-between gap-2">
-                <Button
+                <IconButton
+                  ariaLabel="Back"
+                  icon="bi-chevron-left"
                   variant="outlined"
                   onClick={() => {
                     if (editScheduleId !== null) {
@@ -1088,15 +1110,17 @@ const GeneratorPage = () => {
                     } else if (state.hasManualEdits) setShowBackReview(true);
                     else returnToInputs();
                   }}
-                >
-                  Back
-                </Button>
-                <Button onClick={() => {
-                  setAcknowledged(false);
-                  setShowConfirm(true);
-                }}>
-                  Confirm
-                </Button>
+                />
+                <IconButton
+                  ariaLabel="Confirm"
+                  title="Confirm schedule"
+                  icon="bi-check-lg"
+                  variant="filled"
+                  onClick={() => {
+                    setAcknowledged(false);
+                    setShowConfirm(true);
+                  }}
+                />
               </div>
             </>
           )}

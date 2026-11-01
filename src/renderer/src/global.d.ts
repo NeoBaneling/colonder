@@ -32,6 +32,12 @@ declare global {
     }
     schedules: {
       downloadPdf: (filename: string) => Promise<{ canceled: boolean }>
+      print: (segmentId: number, weekStart?: string) => Promise<void>
+      exportPdf: (
+        segmentId: number,
+        filename: string,
+        weekStart?: string,
+      ) => Promise<{ canceled: boolean }>
     }
     weeklySchedules: {
       listForSegment: (segmentId: number) => Promise<WeeklySchedule[]>

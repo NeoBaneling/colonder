@@ -22,7 +22,13 @@ export const staffFormSchema = yup
     isProc: yup.boolean().required(),
     isPacu: yup.boolean().required(),
     isPreop: yup.boolean().required(),
-    startTime: yup.string().required(),
+    startTime: yup
+      .string()
+      .matches(
+        /^(?:[01]\d|2[0-3]):[0-5]\d$/,
+        'Enter a valid time',
+      )
+      .required(),
     isLeader: yup.boolean().required(),
     inOrientation: yup.boolean().required(),
     ipcIds: yup.array().of(yup.number().integer().required()).required(),
