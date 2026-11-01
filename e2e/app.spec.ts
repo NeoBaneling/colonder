@@ -1,20 +1,96 @@
 import { _electron as electron, expect, test } from '@playwright/test';
+import type { Page } from '@playwright/test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+const launchApp = (userDataPath: string) =>
+  electron.launch({
+    args: ['.'],
+    env: {
+      ...process.env,
+      COLONDER_USER_DATA: userDataPath,
+      COLONDER_E2E_HEADLESS: '1',
+    },
+  });
+
+type ConfirmedScheduleSeed = {
+  startDate: string;
+  endDate: string;
+  shiftDates?: string[];
+  includeWorkingDays?: boolean;
+  includeToday?: boolean;
+};
+
+const seedConfirmedSchedule = async (
+  page: Page,
+  seed: ConfirmedScheduleSeed,
+) => {
+  await page.evaluate(async ({
+    startDate,
+    endDate,
+    shiftDates = [],
+    includeWorkingDays = false,
+    includeToday = false,
+  }) => {
+    const [person, settings] = await Promise.all([
+      window.staff.create({
+        firstName: 'Ada',
+        lastName: 'Nurse',
+        title: 'RN',
+        role: 0,
+        employment: 0,
+        departments: [0],
+        startTime: '07:00',
+        isLeader: false,
+        inOrientation: false,
+        ipcIds: [],
+      }),
+      window.settings.get(),
+    ]);
+    const dates = new Set(shiftDates);
+    const toIso = (value: Date) =>
+      `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+    const fromIso = (value: string) => {
+      const [year, month, day] = value.split('-').map(Number);
+      return new Date(year, month - 1, day);
+    };
+    if (includeWorkingDays) {
+      for (
+        const date = fromIso(startDate);
+        date <= fromIso(endDate);
+        date.setDate(date.getDate() + 1)
+      ) {
+        if (settings.workingDays[date.getDay()]) dates.add(toIso(date));
+      }
+    }
+    if (includeToday) dates.add(toIso(new Date()));
+    const state = {
+      step: 'review' as const,
+      startDate,
+      endDate,
+      ptoDates: [],
+      prnDates: [],
+      shifts: [...dates].map((date) => ({
+        staffId: person.id,
+        date,
+        kind: 'work' as const,
+        countsTowardTargets: true,
+      })),
+      onCall: [],
+      staffSnapshot: [person],
+      settingsSnapshot: settings,
+      seed: 1,
+      hasManualEdits: false,
+    };
+    const draft = await window.segments.create(state);
+    await window.segments.confirm(draft.id, state);
+  }, seed);
+};
+
 test('saves and restores settings from SQLite', async () => {
   const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-e2e-'));
-  const launchApp = () =>
-    electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        COLONDER_USER_DATA: userDataPath,
-        COLONDER_E2E_HEADLESS: '1',
-      },
-    });
-  let app = await launchApp();
+  let app = await launchApp(userDataPath);
 
   try {
     let page = await app.firstWindow();
@@ -56,7 +132,7 @@ test('saves and restores settings from SQLite', async () => {
     ).toBeVisible();
 
     await app.close();
-    app = await launchApp();
+    app = await launchApp(userDataPath);
     page = await app.firstWindow();
     await page.waitForLoadState('load');
     await page.getByRole('link', { name: 'Settings' }).click();
@@ -86,17 +162,7 @@ test('creates, edits, reloads, and deletes staff in SQLite', async () => {
   test.setTimeout(120_000);
 
   const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-staff-e2e-'));
-  const launchApp = () =>
-    electron.launch({
-      args: ['.'],
-      env: {
-        ...process.env,
-        COLONDER_USER_DATA: userDataPath,
-        COLONDER_E2E_HEADLESS: '1',
-      },
-    });
-
-  let app = await launchApp();
+  let app = await launchApp(userDataPath);
 
   try {
     let page = await app.firstWindow();
@@ -231,7 +297,7 @@ test('creates, edits, reloads, and deletes staff in SQLite', async () => {
       );
 
     await app.close();
-    app = await launchApp();
+    app = await launchApp(userDataPath);
     page = await app.firstWindow();
     await page.waitForLoadState('load');
     await page.getByRole('link', { name: 'Staff' }).click();
@@ -282,14 +348,7 @@ test('creates, edits, reloads, and deletes staff in SQLite', async () => {
 test('creates and confirms a six-week schedule', async () => {
   test.setTimeout(60_000);
   const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-schedule-e2e-'));
-  const app = await electron.launch({
-    args: ['.'],
-    env: {
-      ...process.env,
-      COLONDER_USER_DATA: userDataPath,
-      COLONDER_E2E_HEADLESS: '1',
-    },
-  });
+  const app = await launchApp(userDataPath);
 
   try {
     const page = await app.firstWindow();
@@ -396,7 +455,16 @@ test('creates and confirms a six-week schedule', async () => {
     const ptoLabel = await ptoCell.getAttribute('aria-label');
     await ptoCell.click();
     await expect(ptoCell).toHaveAttribute('aria-pressed', 'true');
-    await page.waitForTimeout(600);
+    await expect
+      .poll(() => page.evaluate(() => window.segments.list()))
+      .toEqual([
+        expect.objectContaining({
+          status: 'draft',
+          state: expect.objectContaining({
+            ptoDates: [expect.stringMatching(/^1:/)],
+          }),
+        }),
+      ]);
     await page.getByRole('link', { name: 'Schedules' }).click();
     await page
       .getByRole('dialog')
@@ -591,14 +659,7 @@ test('creates and confirms a six-week schedule', async () => {
 test('handles clean, saved, and discarded schedule drafts when leaving', async () => {
   test.setTimeout(60_000);
   const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-draft-flow-e2e-'));
-  const app = await electron.launch({
-    args: ['.'],
-    env: {
-      ...process.env,
-      COLONDER_USER_DATA: userDataPath,
-      COLONDER_E2E_HEADLESS: '1',
-    },
-  });
+  const app = await launchApp(userDataPath);
 
   try {
     const page = await app.firstWindow();
@@ -698,66 +759,16 @@ test('handles clean, saved, and discarded schedule drafts when leaving', async (
 test('shows current schedules on the dashboard and opens both detail views', async () => {
   test.setTimeout(60_000);
   const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-dashboard-e2e-'));
-  const app = await electron.launch({
-    args: ['.'],
-    env: {
-      ...process.env,
-      COLONDER_USER_DATA: userDataPath,
-      COLONDER_E2E_HEADLESS: '1',
-    },
-  });
+  const app = await launchApp(userDataPath);
 
   try {
     const page = await app.firstWindow();
     await page.clock.install({ time: new Date('2026-10-21T12:00:00') });
-    await page.evaluate(async () => {
-      const todayDate = new Date();
-      const toIso = (value: Date) =>
-        `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
-      const start = new Date(todayDate);
-      start.setDate(start.getDate() - ((start.getDay() + 6) % 7) - 14);
-      const end = new Date(start);
-      end.setDate(end.getDate() + 41);
-      const today = toIso(todayDate);
-      const [person, settings] = await Promise.all([
-        window.staff.create({
-          firstName: 'Ada',
-          lastName: 'Nurse',
-          title: 'RN',
-          role: 0,
-          employment: 0,
-          departments: [0],
-          startTime: '07:00',
-          isLeader: false,
-          inOrientation: false,
-          ipcIds: [],
-        }),
-        window.settings.get(),
-      ]);
-      const shiftDates = new Set([today]);
-      for (const date = new Date(start); date <= end; date.setDate(date.getDate() + 1)) {
-        if (settings.workingDays[date.getDay()]) shiftDates.add(toIso(date));
-      }
-      const state = {
-        step: 'review' as const,
-        startDate: toIso(start),
-        endDate: toIso(end),
-        ptoDates: [],
-        prnDates: [],
-        shifts: [...shiftDates].map((date) => ({
-            staffId: person.id,
-            date,
-            kind: 'work' as const,
-            countsTowardTargets: true,
-          })),
-        onCall: [],
-        staffSnapshot: [person],
-        settingsSnapshot: settings,
-        seed: 1,
-        hasManualEdits: false,
-      };
-      const draft = await window.segments.create(state);
-      await window.segments.confirm(draft.id, state);
+    await seedConfirmedSchedule(page, {
+      startDate: '2026-10-05',
+      endDate: '2026-11-15',
+      includeWorkingDays: true,
+      includeToday: true,
     });
 
     await page.getByRole('link', { name: 'Schedules' }).click();
@@ -938,57 +949,16 @@ test('shows current schedules on the dashboard and opens both detail views', asy
 
 test('includes the Sunday before a schedule start in its first schedule week', async () => {
   const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-sunday-period-e2e-'));
-  const app = await electron.launch({
-    args: ['.'],
-    env: {
-      ...process.env,
-      COLONDER_USER_DATA: userDataPath,
-      COLONDER_E2E_HEADLESS: '1',
-    },
-  });
+  const app = await launchApp(userDataPath);
 
   try {
     const page = await app.firstWindow();
     await page.waitForLoadState('load');
     await page.clock.install({ time: new Date('2026-11-01T12:00:00') });
-    await page.evaluate(async () => {
-      const [person, settings] = await Promise.all([
-        window.staff.create({
-          firstName: 'Ada',
-          lastName: 'Nurse',
-          title: 'RN',
-          role: 0,
-          employment: 0,
-          departments: [0],
-          startTime: '07:00',
-          isLeader: false,
-          inOrientation: false,
-          ipcIds: [],
-        }),
-        window.settings.get(),
-      ]);
-      const state = {
-        step: 'review' as const,
-        startDate: '2026-11-02',
-        endDate: '2026-12-11',
-        ptoDates: [],
-        prnDates: [],
-        shifts: [
-          {
-            staffId: person.id,
-            date: '2026-11-02',
-            kind: 'work' as const,
-            countsTowardTargets: true,
-          },
-        ],
-        onCall: [],
-        staffSnapshot: [person],
-        settingsSnapshot: settings,
-        seed: 1,
-        hasManualEdits: false,
-      };
-      const draft = await window.segments.create(state);
-      await window.segments.confirm(draft.id, state);
+    await seedConfirmedSchedule(page, {
+      startDate: '2026-11-02',
+      endDate: '2026-12-11',
+      shiftDates: ['2026-11-02'],
     });
 
     await page.reload();
@@ -1015,14 +985,7 @@ test('includes the Sunday before a schedule start in its first schedule week', a
 
 test('prompts users with no staff to add their first staff member', async () => {
   const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-empty-dashboard-e2e-'));
-  const app = await electron.launch({
-    args: ['.'],
-    env: {
-      ...process.env,
-      COLONDER_USER_DATA: userDataPath,
-      COLONDER_E2E_HEADLESS: '1',
-    },
-  });
+  const app = await launchApp(userDataPath);
 
   try {
     const page = await app.firstWindow();
@@ -1065,56 +1028,15 @@ test('prompts users with no staff to add their first staff member', async () => 
 
 test('offers six-week generation when the next schedule is due', async () => {
   const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-next-six-week-e2e-'));
-  const app = await electron.launch({
-    args: ['.'],
-    env: {
-      ...process.env,
-      COLONDER_USER_DATA: userDataPath,
-      COLONDER_E2E_HEADLESS: '1',
-    },
-  });
+  const app = await launchApp(userDataPath);
 
   try {
     const page = await app.firstWindow();
     await page.clock.install({ time: new Date('2026-10-21T12:00:00') });
-    await page.evaluate(async () => {
-      const [person, settings] = await Promise.all([
-        window.staff.create({
-          firstName: 'Ada',
-          lastName: 'Nurse',
-          title: 'RN',
-          role: 0,
-          employment: 0,
-          departments: [0],
-          startTime: '07:00',
-          isLeader: false,
-          inOrientation: false,
-          ipcIds: [],
-        }),
-        window.settings.get(),
-      ]);
-      const state = {
-        step: 'review' as const,
-        startDate: '2026-09-12',
-        endDate: '2026-10-23',
-        ptoDates: [],
-        prnDates: [],
-        shifts: [
-          {
-            staffId: person.id,
-            date: '2026-10-21',
-            kind: 'work' as const,
-            countsTowardTargets: true,
-          },
-        ],
-        onCall: [],
-        staffSnapshot: [person],
-        settingsSnapshot: settings,
-        seed: 1,
-        hasManualEdits: false,
-      };
-      const draft = await window.segments.create(state);
-      await window.segments.confirm(draft.id, state);
+    await seedConfirmedSchedule(page, {
+      startDate: '2026-09-12',
+      endDate: '2026-10-23',
+      shiftDates: ['2026-10-21'],
     });
 
     await page.reload();
@@ -1147,56 +1069,15 @@ test('offers six-week generation when the next schedule is due', async () => {
 
 test('offers weekly generation only for an unscheduled week in a confirmed schedule', async () => {
   const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-next-week-e2e-'));
-  const app = await electron.launch({
-    args: ['.'],
-    env: {
-      ...process.env,
-      COLONDER_USER_DATA: userDataPath,
-      COLONDER_E2E_HEADLESS: '1',
-    },
-  });
+  const app = await launchApp(userDataPath);
 
   try {
     const page = await app.firstWindow();
     await page.clock.install({ time: new Date('2026-10-21T12:00:00') });
-    await page.evaluate(async () => {
-      const [person, settings] = await Promise.all([
-        window.staff.create({
-          firstName: 'Ada',
-          lastName: 'Nurse',
-          title: 'RN',
-          role: 0,
-          employment: 0,
-          departments: [0],
-          startTime: '07:00',
-          isLeader: false,
-          inOrientation: false,
-          ipcIds: [],
-        }),
-        window.settings.get(),
-      ]);
-      const state = {
-        step: 'review' as const,
-        startDate: '2026-10-05',
-        endDate: '2026-11-13',
-        ptoDates: [],
-        prnDates: [],
-        shifts: [
-          {
-            staffId: person.id,
-            date: '2026-10-21',
-            kind: 'work' as const,
-            countsTowardTargets: true,
-          },
-        ],
-        onCall: [],
-        staffSnapshot: [person],
-        settingsSnapshot: settings,
-        seed: 1,
-        hasManualEdits: false,
-      };
-      const draft = await window.segments.create(state);
-      await window.segments.confirm(draft.id, state);
+    await seedConfirmedSchedule(page, {
+      startDate: '2026-10-05',
+      endDate: '2026-11-13',
+      shiftDates: ['2026-10-21'],
     });
 
     await page.reload();
