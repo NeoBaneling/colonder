@@ -3,7 +3,10 @@
   "version": "1.0.0",
   "private": true,
   "description": "A desktop app built with Electron, Vite, and React",
-  "email": "joeydavidbishop@gmail.com",
+  "author": {
+    "name": "Joey Bishop",
+    "email": "joeydavidbishop@gmail.com"
+  },
   "main": "out/main/index.js",
   "scripts": {
     "postinstall": "electron-rebuild -f -w better-sqlite3",
