@@ -23,6 +23,26 @@ npm run preview
 
 `preview` launches the built Electron app.
 
+## Package desktop apps
+
+```sh
+npm run dist
+npm run dist:dir
+```
+
+`dist` builds installers for the current operating system; `dist:dir` creates
+an unpacked application. Both write to `release/`. The macOS targets are DMG
+and ZIP, Windows uses NSIS, and Linux uses AppImage and DEB. To select a target
+explicitly, pass an electron-builder platform flag, for example
+`npm run dist -- --mac` or `npm run dist -- --win`. The app icon assets are
+generated from `build/colonder-app-icon.png` as part of the packaging command.
+
+On each push to `main`, GitHub Actions builds installers on macOS, Windows, and
+Linux runners. Download them from the run's **Artifacts** section on the
+repository's Actions page. Artifacts are kept for 30 days; each run has its own
+artifacts, so new builds do not replace artifacts from previous runs. The
+workflow can also be started manually from the Actions page.
+
 ## Tests
 
 ```sh
