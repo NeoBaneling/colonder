@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "description": "A desktop app built with Electron, Vite, and React",
+  "email": "joeydavidbishop@gmail.com",
   "main": "out/main/index.js",
   "scripts": {
     "postinstall": "electron-rebuild -f -w better-sqlite3",
@@ -10,7 +11,7 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "icons": "png2icons build/colonder-app-icon.png build/colonder-app-icon -allwe -bc",
-    "dist": "npm run build && npm run icons && electron-builder",
+    "dist": "npm run build && npm run icons && electron-builder --publish never",
     "dist:dir": "npm run build && npm run icons && electron-builder --dir",
     "test": "vitest run --configLoader runner",
     "test:watch": "vitest --configLoader runner",
@@ -60,16 +61,24 @@
     "mac": {
       "icon": "build/colonder-app-icon.icns",
       "category": "public.app-category.productivity",
-      "target": ["dmg", "zip"]
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "win": {
       "icon": "build/colonder-app-icon.ico",
-      "target": ["nsis"]
+      "target": [
+        "nsis"
+      ]
     },
     "linux": {
       "icon": "build/colonder-app-icon.png",
       "category": "Office",
-      "target": ["AppImage", "deb"]
+      "target": [
+        "AppImage",
+        "deb"
+      ]
     }
   }
 }
