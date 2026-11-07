@@ -9,6 +9,9 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
+    "icons": "png2icons build/colonder-app-icon.png build/colonder-app-icon -allwe -bc",
+    "dist": "npm run build && npm run icons && electron-builder",
+    "dist:dir": "npm run build && npm run icons && electron-builder --dir",
     "test": "vitest run --configLoader runner",
     "test:watch": "vitest --configLoader runner",
     "test:e2e": "npm run build && playwright test",
@@ -36,13 +39,37 @@
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^5.0.2",
     "electron": "^38.1.2",
+    "electron-builder": "^26.18.0",
     "electron-vite": "^4.0.1",
     "jsdom": "^26.1.0",
+    "png2icons": "^2.0.1",
     "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.1.13",
     "typescript": "^5.9.2",
     "vite": "^7.1.7",
     "vite-plugin-svgr": "^5.2.0",
     "vitest": "^3.2.4"
+  },
+  "build": {
+    "appId": "com.neobaneling.colonder",
+    "productName": "Colonder",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "mac": {
+      "icon": "build/colonder-app-icon.icns",
+      "category": "public.app-category.productivity",
+      "target": ["dmg", "zip"]
+    },
+    "win": {
+      "icon": "build/colonder-app-icon.ico",
+      "target": ["nsis"]
+    },
+    "linux": {
+      "icon": "build/colonder-app-icon.png",
+      "category": "Office",
+      "target": ["AppImage", "deb"]
+    }
   }
 }
