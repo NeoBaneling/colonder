@@ -111,7 +111,7 @@ export const HistoryDetailsPage = () => {
       name: string;
       role: Role;
       employment: Emp;
-      status: Record<string, 'W' | 'P' | 'OC' | '–'>;
+      status: Record<string, 'W' | 'P' | 'F' | 'OC' | '–'>;
     }>;
     const people = [...segment.state.staffSnapshot].sort((a, b) => {
       if (a.role !== b.role) return a.role - b.role;
@@ -120,11 +120,12 @@ export const HistoryDetailsPage = () => {
     });
 
     return people.map((person) => {
-      const status: Record<string, 'W' | 'P' | 'OC' | '–'> = {};
+      const status: Record<string, 'W' | 'P' | 'F' | 'OC' | '–'> = {};
       for (const shift of segment.state.shifts) {
         if (shift.staffId === person.id) {
           if (shift.kind === 'work') status[shift.date] = 'W';
           if (shift.kind === 'pto') status[shift.date] = 'P';
+          if (shift.kind === 'fmla') status[shift.date] = 'F';
         }
       }
       for (const key of segment.state.onCall) {
@@ -291,6 +292,8 @@ export const HistoryDetailsPage = () => {
                             ? 'schedule-pdf-work'
                             : value === 'P'
                               ? 'schedule-pdf-pto'
+                              : value === 'F'
+                                ? 'schedule-pdf-fmla'
                               : ''
                         }`}
                       >
@@ -312,7 +315,7 @@ export const HistoryDetailsPage = () => {
           </tr>
         </tfoot>
       </table>
-      <p className="schedule-pdf-legend">W work · – off · P PTO · OC on-call.</p>
+      <p className="schedule-pdf-legend">W work · – off · P PTO · F FMLA · OC on-call.</p>
       <PrintFooter pageNumber={pageNumber} totalPages={2} />
       </section>
     );
@@ -434,6 +437,8 @@ export const HistoryDetailsPage = () => {
                         ? 'schedule-cell-work'
                         : value === 'P'
                           ? 'schedule-cell-pto'
+                          : value === 'F'
+                            ? 'schedule-cell-fmla'
                           : '';
                     return (
                       <td

@@ -32,6 +32,7 @@ const segment: ScheduleSegment = {
     step: 'review',
     startDate: '2026-10-05',
     endDate: '2026-11-13',
+    fmlaEntries: [],
     ptoDates: [],
     prnDates: [],
     shifts: [

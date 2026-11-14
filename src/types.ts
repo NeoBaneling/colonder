@@ -40,7 +40,7 @@ export interface Settings {
   isDark: boolean;
 }
 
-export type SegmentStep = 'pto' | 'prn' | 'review';
+export type SegmentStep = 'fmla' | 'pto' | 'prn' | 'review';
 
 export type SegmentWarning = {
   code:
@@ -58,14 +58,23 @@ export type SegmentWarning = {
 export type SegmentShift = {
   staffId: number;
   date: string;
-  kind: 'work' | 'pto';
+  kind: 'work' | 'pto' | 'fmla';
   countsTowardTargets: boolean;
+};
+
+export type FmlaEntry = {
+  staffId: number;
+  onFmla: boolean;
+  startDate: string | null;
+  endDate: string | null;
+  rolledOver: boolean;
 };
 
 export interface SegmentState {
   step: SegmentStep;
   startDate: string;
   endDate: string;
+  fmlaEntries: FmlaEntry[];
   ptoDates: string[];
   prnDates: string[];
   shifts: SegmentShift[];

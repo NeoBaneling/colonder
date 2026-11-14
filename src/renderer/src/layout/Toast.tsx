@@ -15,12 +15,17 @@ type ToastMessage = {
   type: ToastType;
   title: string;
   description: string;
+  action?: { label: string; onClick: () => void };
 };
 
 type ToastInput = Omit<ToastMessage, 'id'>;
 
 type ToastContextValue = {
-  success: (title: string, description: string) => void;
+  success: (
+    title: string,
+    description: string,
+    action?: ToastMessage['action'],
+  ) => void;
   failure: (title: string, description: string) => void;
 };
 
@@ -52,6 +57,18 @@ const ToastItem = ({
       <div className="toast-copy">
         <strong>{toast.title}</strong>
         <p>{toast.description}</p>
+        {toast.action && (
+          <button
+            type="button"
+            className="toast-action"
+            onClick={() => {
+              toast.action?.onClick();
+              dismiss(toast.id);
+            }}
+          >
+            {toast.action.label}
+          </button>
+        )}
       </div>
       <button
         type="button"
@@ -80,8 +97,11 @@ export const ToastProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const success = useCallback(
-    (title: string, description: string) =>
-      addToast({ type: 'success', title, description }),
+    (
+      title: string,
+      description: string,
+      action?: ToastMessage['action'],
+    ) => addToast({ type: 'success', title, description, action }),
     [addToast],
   );
   const failure = useCallback(

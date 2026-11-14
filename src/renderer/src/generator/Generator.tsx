@@ -15,6 +15,7 @@ import {
 import {
   Emp,
   Role,
+  type FmlaEntry,
   type ScheduleSegment,
   type SegmentState,
   type SegmentStep,
@@ -32,6 +33,9 @@ import {
   dailyCounts,
   dayLabel,
   generateSegmentShifts,
+  getFmlaCellKeys,
+  getRolledOverFmlaEntries,
+  isValidFmlaRange,
   getSegmentDates,
   nextWorkingStart,
   segmentEndDate,
@@ -39,7 +43,7 @@ import {
   weekIndex,
 } from './engine';
 
-type View = 'pto' | 'prn' | 'generating' | 'review';
+type View = 'fmla' | 'pto' | 'prn' | 'generating' | 'review';
 type ReviewEdit = Pick<SegmentState, 'shifts' | 'onCall'>;
 
 const formatDate = (date: string): string =>
@@ -51,6 +55,28 @@ const formatDate = (date: string): string =>
 
 const formatDateRange = (startDate: string, endDate: string): string =>
   `${formatDate(startDate)} – ${formatDate(endDate)}, ${endDate.slice(0, 4)}`;
+
+const fmlaAppliesTo = (
+  entry: FmlaEntry,
+  segmentStart: string,
+  segmentEnd: string,
+): string => {
+  const start = entry.startDate && entry.startDate > segmentStart
+    ? entry.startDate
+    : segmentStart;
+  const end = entry.endDate && entry.endDate < segmentEnd
+    ? entry.endDate
+    : segmentEnd;
+  if (start > end) return 'Outside schedule';
+  if (start === segmentStart && end === segmentEnd) return 'Whole schedule';
+  const weeks = Math.ceil(
+    (Date.parse(`${end}T00:00:00.000Z`) -
+      Date.parse(`${start}T00:00:00.000Z`) +
+      24 * 60 * 60 * 1000) /
+      (7 * 24 * 60 * 60 * 1000),
+  );
+  return `${formatDate(start)} – ${formatDate(end)} · ${weeks} ${weeks === 1 ? 'week' : 'weeks'}`;
+};
 
 const weekGroups = (dates: string[], startDate: string) => {
   const groups: { week: number; dates: string[] }[] = [];
@@ -197,7 +223,7 @@ const InputGrid = ({
                       <td key={date}>
                         <button
                           type="button"
-                          aria-label={`${person.firstName} ${person.lastName}, ${formatDate(date)}: ${isDisabled ? 'unavailable due to PTO' : isSelected ? 'selected' : 'not selected'}`}
+                          aria-label={`${person.firstName} ${person.lastName}, ${formatDate(date)}: ${isDisabled ? 'unavailable due to leave' : isSelected ? 'selected' : 'not selected'}`}
                           aria-pressed={isSelected}
                           disabled={isDisabled}
                           data-grid-row={rowIndex}
@@ -266,7 +292,8 @@ const GeneratorPage = () => {
   const [draftId, setDraftId] = useState<number | null>(null);
   const draftCreation = useRef<Promise<ScheduleSegment> | null>(null);
   const [editScheduleId, setEditScheduleId] = useState<number | null>(null);
-  const [view, setView] = useState<View>('pto');
+  const [view, setView] = useState<View>('fmla');
+  const [fmlaSearch, setFmlaSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [savingError, setSavingError] = useState<string | null>(null);
@@ -289,6 +316,7 @@ const GeneratorPage = () => {
     state !== null &&
     (view === 'review' ||
       view === 'generating' ||
+      state.fmlaEntries.some((entry) => entry.onFmla || entry.rolledOver) ||
       state.ptoDates.length > 0 ||
       state.prnDates.length > 0);
   const blocker = useBlocker(
@@ -344,6 +372,9 @@ const GeneratorPage = () => {
             setView(draft.state.step);
           }
         } else {
+          const previousSegment = savedSegments
+            .filter((segment) => segment.status === 'confirmed')
+            .sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
           const startDate = nextWorkingStart(
             savedSettings.workingDays,
             savedSegments
@@ -356,9 +387,12 @@ const GeneratorPage = () => {
           }
 
           const initial: SegmentState = {
-            step: 'pto',
+            step: 'fmla',
             startDate,
             endDate: segmentEndDate(startDate, savedSettings.workingDays),
+            fmlaEntries: previousSegment
+              ? getRolledOverFmlaEntries(previousSegment, startDate)
+              : [],
             ptoDates: [],
             prnDates: [],
             shifts: [],
@@ -475,6 +509,26 @@ const GeneratorPage = () => {
   };
   const ptoSet = useMemo(() => new Set(state?.ptoDates ?? []), [state?.ptoDates]);
   const prnSet = useMemo(() => new Set(state?.prnDates ?? []), [state?.prnDates]);
+  const fmlaSet = useMemo(
+    () => new Set(getFmlaCellKeys(state?.fmlaEntries ?? [], dates)),
+    [dates, state?.fmlaEntries],
+  );
+  const visibleFmlaStaff = useMemo(() => {
+    const search = fmlaSearch.trim().toLocaleLowerCase();
+    return people.filter((person) =>
+      `${person.firstName} ${person.lastName}`.toLocaleLowerCase().includes(search),
+    );
+  }, [fmlaSearch, people]);
+  const fmlaCount = state?.fmlaEntries.filter((entry) => entry.onFmla).length ?? 0;
+  const rolledOverCount =
+    state?.fmlaEntries.filter((entry) => entry.rolledOver && entry.onFmla).length ?? 0;
+  const hasInvalidFmlaRange = state
+    ? state.fmlaEntries.some(
+        (entry) =>
+          entry.onFmla &&
+          !isValidFmlaRange(entry, state.startDate, state.endDate),
+      )
+    : false;
 
   const updateMarkedDays = (field: 'ptoDates' | 'prnDates', key: string, value: boolean) => {
     setState((current) => {
@@ -483,6 +537,74 @@ const GeneratorPage = () => {
       if (value) values.add(key);
       else values.delete(key);
       return { ...current, [field]: [...values] };
+    });
+  };
+
+  const setFmlaEnabled = (person: Staff, onFmla: boolean) => {
+    if (!state) return;
+    const existing = state.fmlaEntries.find((entry) => entry.staffId === person.id);
+    if (!onFmla && existing?.rolledOver) {
+      toast.success(
+        `${person.firstName} ${person.lastName} removed from FMLA`,
+        "They'll be scheduled as usual.",
+        {
+          label: 'Undo',
+          onClick: () =>
+            setState((current) =>
+              current
+                ? {
+                    ...current,
+                    fmlaEntries: current.fmlaEntries.map((entry) =>
+                      entry.staffId === person.id
+                        ? { ...entry, onFmla: true }
+                        : entry,
+                    ),
+                  }
+                : current,
+            ),
+        },
+      );
+    }
+    setState({
+      ...state,
+      fmlaEntries: onFmla
+        ? existing
+          ? state.fmlaEntries.map((entry) =>
+              entry.staffId === person.id ? { ...entry, onFmla: true } : entry,
+            )
+          : [
+              ...state.fmlaEntries,
+              {
+                staffId: person.id,
+                onFmla: true,
+                startDate: null,
+                endDate: null,
+                rolledOver: false,
+              },
+            ]
+        : state.fmlaEntries
+            .map((entry) =>
+              entry.staffId === person.id ? { ...entry, onFmla: false } : entry,
+            )
+            .filter((entry) => entry.onFmla || entry.rolledOver),
+    });
+  };
+
+  const updateFmlaDate = (
+    staffId: number,
+    field: 'startDate' | 'endDate',
+    value: string,
+  ) => {
+    setState((current) => {
+      if (!current) return current;
+      return {
+        ...current,
+        fmlaEntries: current.fmlaEntries.map((entry) =>
+          entry.staffId === staffId
+            ? { ...entry, [field]: value || null }
+            : entry,
+        ),
+      };
     });
   };
 
@@ -501,6 +623,7 @@ const GeneratorPage = () => {
             source.prnDates,
             source.startDate,
             source.seed,
+            source.fmlaEntries,
           ),
           hasManualEdits: false,
         };
@@ -512,6 +635,13 @@ const GeneratorPage = () => {
     },
     [],
   );
+
+  const nextFromFmla = () => {
+    if (!state || hasInvalidFmlaRange) return;
+    const nextState: SegmentState = { ...state, step: 'pto' };
+    setState(nextState);
+    setView('pto');
+  };
 
   const nextFromPto = () => {
     if (!state) return;
@@ -763,7 +893,7 @@ const GeneratorPage = () => {
   }
 
   const activeStep: SegmentStep =
-    view === 'pto' || view === 'prn' ? view : 'review';
+    view === 'fmla' || view === 'pto' || view === 'prn' ? view : 'review';
   const title =
     editScheduleId !== null
       ? 'Edit schedule'
@@ -781,16 +911,20 @@ const GeneratorPage = () => {
             {editScheduleId === null && (
               <div className="schedule-steps" aria-label="Schedule creation steps">
                 {[
-                  ['Input', 'bi-pencil'],
+                  ['FMLA', 'bi-heart'],
+                  ['PTO', 'bi-pencil'],
                   ['Generate', 'bi-arrow-repeat'],
                   ['Review', 'bi-eye'],
+                  ['Confirm', 'bi-check-lg'],
                 ].map(([label, icon], index) => {
                   const currentIndex =
-                    activeStep === 'pto' || activeStep === 'prn'
+                    activeStep === 'fmla'
                       ? 0
-                      : view === 'generating'
+                      : activeStep === 'pto' || activeStep === 'prn'
                         ? 1
-                        : 2;
+                        : view === 'generating'
+                          ? 2
+                          : 3;
                   const isCurrent = currentIndex === index;
                   const isComplete = currentIndex > index;
                   return (
@@ -819,6 +953,186 @@ const GeneratorPage = () => {
             )}
           </div>
 
+          {view === 'fmla' && state && (
+            <section className="fmla-step flex min-w-0 flex-col gap-3">
+              <h2 className="text-sm! sm:text-base!">FMLA</h2>
+              <div className="fmla-rollover-banner" role="status">
+                <span className="fmla-heart" aria-hidden="true">
+                  <i className="bi bi-heart-fill" />
+                </span>
+                <span>
+                  {rolledOverCount === 0
+                    ? 'No staff members rolled over from the last schedule'
+                    : `${rolledOverCount} staff ${rolledOverCount === 1 ? 'member' : 'members'} rolled over from the last schedule`}
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <input
+                  type="search"
+                  aria-label="Search staff"
+                  placeholder="Search staff"
+                  value={fmlaSearch}
+                  onChange={(event) => setFmlaSearch(event.currentTarget.value)}
+                  className="fmla-search"
+                />
+                <span className="fmla-count">{fmlaCount} on FMLA</span>
+              </div>
+              <div className="fmla-table-scroll">
+                <table className="fmla-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Staff</th>
+                      <th scope="col">On FMLA</th>
+                      <th scope="col">Start date (optional)</th>
+                      <th scope="col">End date (optional)</th>
+                      <th scope="col">Applies to</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleFmlaStaff.map((person) => {
+                      const entry = state.fmlaEntries.find(
+                        (item) => item.staffId === person.id,
+                      );
+                      const isOnFmla = entry?.onFmla ?? false;
+                      const invalidRange =
+                        isOnFmla &&
+                        entry !== undefined &&
+                        !isValidFmlaRange(
+                          entry,
+                          state.startDate,
+                          state.endDate,
+                        );
+                      const appliesTo =
+                        entry && isOnFmla
+                          ? fmlaAppliesTo(entry, state.startDate, state.endDate)
+                          : '';
+                      return (
+                        <tr
+                          key={person.id}
+                          className={
+                            entry?.rolledOver && isOnFmla
+                              ? 'fmla-row-rolled'
+                              : ''
+                          }
+                        >
+                          <th scope="row">
+                            <span>{person.lastName}, {person.firstName}</span>
+                            {entry?.rolledOver && (
+                              <span
+                                className={`fmla-rollover-chip ${isOnFmla ? '' : 'was-rolled-over'}`}
+                              >
+                                {isOnFmla ? 'Rolled over' : 'Was rolled over'}
+                              </span>
+                            )}
+                          </th>
+                          <td>
+                            <label className="toggle">
+                              <input
+                                type="checkbox"
+                                role="switch"
+                                aria-label={`On FMLA for ${person.firstName} ${person.lastName}`}
+                                checked={isOnFmla}
+                                onChange={(event) =>
+                                  setFmlaEnabled(
+                                    person,
+                                    event.currentTarget.checked,
+                                  )
+                                }
+                              />
+                              <span className="toggle-track" aria-hidden="true" />
+                            </label>
+                          </td>
+                          <td>
+                            {isOnFmla && entry?.rolledOver ? (
+                              <span className="fmla-locked-date">
+                                <input
+                                  type="text"
+                                  value={`Since ${formatDate(entry.startDate ?? state.startDate)}`}
+                                  aria-label={`Start date for ${person.firstName} ${person.lastName}`}
+                                  disabled
+                                />
+                                <i className="bi bi-lock-fill" aria-hidden="true" />
+                              </span>
+                            ) : isOnFmla ? (
+                              <input
+                                type="date"
+                                aria-label={`Start date for ${person.firstName} ${person.lastName}`}
+                                value={entry?.startDate ?? ''}
+                                onChange={(event) =>
+                                  updateFmlaDate(
+                                    person.id,
+                                    'startDate',
+                                    event.currentTarget.value,
+                                  )
+                                }
+                              />
+                            ) : null}
+                          </td>
+                          <td>
+                            {isOnFmla && (
+                              <>
+                                <input
+                                  type="date"
+                                  aria-label={`End date for ${person.firstName} ${person.lastName}`}
+                                  aria-invalid={invalidRange}
+                                  aria-describedby={
+                                    invalidRange
+                                      ? `fmla-error-${person.id}`
+                                      : undefined
+                                  }
+                                  value={entry?.endDate ?? ''}
+                                  onChange={(event) =>
+                                    updateFmlaDate(
+                                      person.id,
+                                      'endDate',
+                                      event.currentTarget.value,
+                                    )
+                                  }
+                                />
+                                {invalidRange && (
+                                  <span
+                                    id={`fmla-error-${person.id}`}
+                                    className="fmla-date-error"
+                                    role="alert"
+                                  >
+                                    End date must be after start date
+                                  </span>
+                                )}
+                              </>
+                            )}
+                          </td>
+                          <td className="fmla-applies">{appliesTo}</td>
+                        </tr>
+                      );
+                    })}
+                    {visibleFmlaStaff.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="fmla-empty">
+                          No staff members found.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {savingError && <p role="alert" className="text-sm! text-cherry-600">{savingError}</p>}
+              <div className="flex flex-wrap justify-between gap-2">
+                <IconButton
+                  ariaLabel="Back"
+                  icon="bi-chevron-left"
+                  variant="outlined"
+                  onClick={() => {
+                    if (hasDraftProgress) setShowDiscard(true);
+                    else void discardDraft();
+                  }}
+                />
+                <Button disabled={hasInvalidFmlaRange} onClick={nextFromFmla}>
+                  Continue
+                </Button>
+              </div>
+            </section>
+          )}
+
           {(view === 'pto' || view === 'prn') && state && (
             <>
               <InputGrid
@@ -836,7 +1150,11 @@ const GeneratorPage = () => {
                 dates={dates}
                 startDate={state.startDate}
                 selected={view === 'pto' ? ptoSet : prnSet}
-                disabledKeys={view === 'prn' ? ptoSet : undefined}
+                disabledKeys={
+                  view === 'prn'
+                    ? new Set([...ptoSet, ...fmlaSet])
+                    : fmlaSet
+                }
                 kind={view === 'pto' ? 'pto' : 'prn'}
                 onToggle={(key, value) =>
                   updateMarkedDays(view === 'pto' ? 'ptoDates' : 'prnDates', key, value)
@@ -856,6 +1174,11 @@ const GeneratorPage = () => {
                         current ? { ...current, step: 'pto' } : current,
                       );
                       setView('pto');
+                    } else if (view === 'pto') {
+                      setState((current) =>
+                        current ? { ...current, step: 'fmla' } : current,
+                      );
+                      setView('fmla');
                     } else if (hasDraftProgress) {
                       setShowDiscard(true);
                     } else {
@@ -995,7 +1318,9 @@ const GeneratorPage = () => {
                         </th>
                         {dates.map((date, columnIndex) => {
                           const key = cellKey(person.id, date);
-                          const isPto = ptoSet.has(key);
+                          const isFmla = fmlaSet.has(key);
+                          const isPto = !isFmla && ptoSet.has(key);
+                          const isLeave = isFmla || isPto;
                           const shift = state.shifts.find(
                             (item) =>
                               item.staffId === person.id &&
@@ -1014,7 +1339,7 @@ const GeneratorPage = () => {
                           const isSwapTarget =
                             selectedWork?.staffId === person.id &&
                             sameWeek &&
-                            !isPto &&
+                            !isLeave &&
                             !shift &&
                             !isOnCall &&
                             !onCallMode;
@@ -1023,11 +1348,13 @@ const GeneratorPage = () => {
                           const enabled = isPrn
                             ? false
                             : onCallMode
-                            ? !person.inOrientation && !isPto && shift !== undefined
+                            ? !person.inOrientation && !isLeave && shift !== undefined
                             : selectedWork
                               ? isSwapTarget || canSelect
                               : canSelect;
-                          const label = isPto
+                          const label = isFmla
+                            ? 'FMLA'
+                            : isPto
                             ? 'PTO'
                             : isOnCall
                               ? 'On-call'
@@ -1045,9 +1372,9 @@ const GeneratorPage = () => {
                                 disabled={!enabled}
                                 data-grid-row={rowIndex}
                                 data-grid-column={columnIndex}
-                                className={`schedule-cell ${showPto ? 'schedule-cell-pto' : ''} ${shift ? 'schedule-cell-work' : ''} ${isOnCall ? 'schedule-cell-oncall' : ''} ${isSelected ? 'schedule-cell-selected' : ''} ${isSwapTarget ? 'schedule-cell-target' : ''} ${isPrn ? 'schedule-cell-disabled' : ''}`}
+                                className={`schedule-cell ${showPto ? 'schedule-cell-pto' : ''} ${isFmla ? 'schedule-cell-fmla' : ''} ${shift ? 'schedule-cell-work' : ''} ${isOnCall ? 'schedule-cell-oncall' : ''} ${isSelected ? 'schedule-cell-selected' : ''} ${isSwapTarget ? 'schedule-cell-target' : ''} ${isPrn ? 'schedule-cell-disabled' : ''}`}
                                 onClick={() => {
-                                  if (onCallMode && !isPto && shift) {
+                                  if (onCallMode && !isLeave && shift) {
                                     toggleOnCall(person.id, date);
                                   } else if (isSwapTarget && selectedWork) {
                                     makeSwap(selectedWork.staffId, selectedWork.date, date);
@@ -1063,7 +1390,7 @@ const GeneratorPage = () => {
                                   moveGridFocus(event, rowIndex, columnIndex)
                                 }
                               >
-                                {showPto ? 'P' : isOnCall ? 'OC' : shift ? 'W' : '–'}
+                                {isFmla ? 'F' : showPto ? 'P' : isOnCall ? 'OC' : shift ? 'W' : '–'}
                               </button>
                             </td>
                           );
@@ -1100,7 +1427,7 @@ const GeneratorPage = () => {
 
               <div className="flex flex-col gap-2">
                 <p className="text-sm!">
-                  W work · – off · P PTO · OC on-call. Counts exclude orientation staff. Select a workday, then a highlighted off day to swap.
+                  W work · – off · P PTO · F FMLA · OC on-call. Counts exclude orientation staff. Select a workday, then a highlighted off day to swap.
                 </p>
               </div>
 

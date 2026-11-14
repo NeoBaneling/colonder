@@ -1,10 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { Emp, Role, type Staff } from '../../../types';
+import { Emp, Role, type ScheduleSegment, type Staff } from '../../../types';
 import {
   cellKey,
   dailyCounts,
   generateSegmentShifts,
+  getFmlaCellKeys,
+  getRolledOverFmlaEntries,
   getSegmentDates,
+  isValidFmlaRange,
   nextWorkingStart,
   segmentEndDate,
   validateSegment,
@@ -61,6 +64,128 @@ describe('six-week schedule engine', () => {
     expect(nextWorkingStart(settings.workingDays, [], '2026-10-27')).toBe(
       '2026-11-02',
     );
+  });
+
+  it('applies FMLA date borders, blocks assignments, and accepts only valid date ranges', () => {
+    const fmlaEntries = [
+      {
+        staffId: 1,
+        onFmla: true,
+        startDate: dates[1],
+        endDate: dates[3],
+        rolledOver: false,
+      },
+    ];
+    const shifts = generateSegmentShifts(
+      [staffMember(1, Role.Nurse)],
+      dates.slice(0, 5),
+      [],
+      [],
+      startDate,
+      12,
+      fmlaEntries,
+    );
+
+    expect(getFmlaCellKeys(fmlaEntries, dates.slice(0, 5))).toEqual(
+      new Set([
+        cellKey(1, dates[1]),
+        cellKey(1, dates[2]),
+        cellKey(1, dates[3]),
+      ]),
+    );
+    expect(
+      shifts.filter((shift) => shift.kind === 'fmla').map((shift) => shift.date),
+    ).toEqual(dates.slice(1, 4));
+    expect(
+      shifts.some(
+        (shift) =>
+          shift.staffId === 1 &&
+          dates.slice(1, 4).includes(shift.date) &&
+          shift.kind === 'work',
+      ),
+    ).toBe(false);
+    expect(isValidFmlaRange(fmlaEntries[0])).toBe(true);
+    expect(
+      isValidFmlaRange({
+        startDate: dates[3],
+        endDate: dates[1],
+      }),
+    ).toBe(false);
+    expect(
+      isValidFmlaRange({ startDate: null, endDate: dates[1] }),
+    ).toBe(true);
+    expect(
+      isValidFmlaRange(
+        { startDate: null, endDate: dates[0] },
+        dates[1],
+        dates[4],
+      ),
+    ).toBe(false);
+    expect(
+      isValidFmlaRange(
+        { startDate: dates[4], endDate: null },
+        dates[0],
+        dates[3],
+      ),
+    ).toBe(false);
+  });
+
+  it('rolls forward only FMLA that continues beyond the previous segment', () => {
+    const previousSegment: ScheduleSegment = {
+      id: 1,
+      startDate: '2026-08-17',
+      endDate: '2026-09-25',
+      status: 'confirmed',
+      createdAt: '2026-08-01',
+      state: {
+        step: 'review',
+        startDate: '2026-08-17',
+        endDate: '2026-09-25',
+        fmlaEntries: [
+          {
+            staffId: 1,
+            onFmla: true,
+            startDate: '2026-08-17',
+            endDate: null,
+            rolledOver: false,
+          },
+          {
+            staffId: 2,
+            onFmla: true,
+            startDate: '2026-09-01',
+            endDate: '2026-09-25',
+            rolledOver: false,
+          },
+          {
+            staffId: 3,
+            onFmla: true,
+            startDate: '2026-09-01',
+            endDate: '2026-09-26',
+            rolledOver: false,
+          },
+        ],
+        ptoDates: [],
+        prnDates: [],
+        shifts: [],
+        onCall: [],
+        staffSnapshot: [],
+        settingsSnapshot: settings,
+        seed: 1,
+        hasManualEdits: false,
+      },
+    };
+
+    expect(
+      getRolledOverFmlaEntries(previousSegment, '2026-09-28'),
+    ).toEqual([
+      {
+        staffId: 1,
+        onFmla: true,
+        startDate: '2026-08-17',
+        endDate: null,
+        rolledOver: true,
+      },
+    ]);
   });
 
   it('generates reproducible, balanced days that respect PTO and exclude PRN totals', () => {

@@ -20,6 +20,7 @@ type ConfirmedScheduleSeed = {
   shiftDates?: string[];
   includeWorkingDays?: boolean;
   includeToday?: boolean;
+  includeOngoingFmla?: boolean;
 };
 
 const seedConfirmedSchedule = async (
@@ -32,6 +33,7 @@ const seedConfirmedSchedule = async (
     shiftDates = [],
     includeWorkingDays = false,
     includeToday = false,
+    includeOngoingFmla = false,
   }) => {
     const [person, settings] = await Promise.all([
       window.staff.create({
@@ -69,13 +71,22 @@ const seedConfirmedSchedule = async (
       step: 'review' as const,
       startDate,
       endDate,
+      fmlaEntries: includeOngoingFmla
+        ? [{
+            staffId: person.id,
+            onFmla: true,
+            startDate,
+            endDate: null,
+            rolledOver: false,
+          }]
+        : [],
       ptoDates: [],
       prnDates: [],
       shifts: [...dates].map((date) => ({
         staffId: person.id,
         date,
-        kind: 'work' as const,
-        countsTowardTargets: true,
+        kind: includeOngoingFmla ? 'fmla' as const : 'work' as const,
+        countsTowardTargets: !includeOngoingFmla,
       })),
       onCall: [],
       staffSnapshot: [person],
@@ -386,6 +397,36 @@ test('creates and confirms a six-week schedule', async () => {
     await expect(
       page.getByRole('heading', { name: 'Create Schedule' }),
     ).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'FMLA' })).toBeVisible();
+    await expect(page.getByText('0 on FMLA')).toBeVisible();
+    const fmlaToggle = page.getByRole('switch', {
+      name: 'On FMLA for Penny Prn',
+    });
+    await fmlaToggle.locator('..').click();
+    await expect
+      .poll(() =>
+        page.evaluate(async () => (await window.segments.list())[0]?.state.startDate),
+      )
+      .toBeTruthy();
+    const segmentStart = await page.evaluate(async () =>
+      (await window.segments.list())[0]!.state.startDate,
+    );
+    const addDate = (date: string, days: number) => {
+      const value = new Date(`${date}T00:00:00.000Z`);
+      value.setUTCDate(value.getUTCDate() + days);
+      return value.toISOString().slice(0, 10);
+    };
+    const fmlaStart = page.getByLabel('Start date for Penny Prn');
+    const fmlaEnd = page.getByLabel('End date for Penny Prn');
+    await fmlaStart.fill(segmentStart);
+    await fmlaEnd.fill(addDate(segmentStart, -1));
+    await expect(
+      page.getByText('End date must be after start date'),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
+    await fmlaEnd.fill(addDate(segmentStart, 1));
+    await expect(page.getByRole('button', { name: 'Continue' })).toBeEnabled();
+    await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByRole('heading', { name: /PTO calendar/ })).toBeVisible();
     await expect
       .poll(() =>
@@ -480,7 +521,7 @@ test('creates and confirms a six-week schedule', async () => {
     await expect(
       page.getByRole('button', { name: 'Generate', exact: true }).locator('i'),
     ).toHaveClass(/bi-arrow-repeat/);
-    const prnCell = page.getByRole('button', { name: /Penny Prn,/ }).first();
+    const prnCell = page.getByRole('button', { name: /Penny Prn,/ }).nth(2);
     await prnCell.click();
     await expect(prnCell).toHaveClass(/schedule-cell-prn/);
     await page.getByRole('button', { name: 'Generate', exact: true }).click();
@@ -493,7 +534,7 @@ test('creates and confirms a six-week schedule', async () => {
     await expect(page.locator('.chip.error')).toHaveCount(0);
     await expect(
       page.locator('.schedule-steps').getByText('Confirm', { exact: true }),
-    ).toHaveCount(0);
+    ).toBeVisible();
     for (const [name, iconClass, title] of [
       ['On-call mode', 'bi-telephone', 'Toggle on-call mode'],
       ['Undo', 'bi-arrow-counterclockwise', 'Undo last change'],
@@ -532,6 +573,14 @@ test('creates and confirms a six-week schedule', async () => {
     await page.getByRole('button', { name: 'On-call mode' }).click();
     await expect(reviewPtoCell).toHaveText('P');
     await expect(reviewPtoCell).toHaveClass(/schedule-cell-pto/);
+    const reviewFmlaCell = page.getByRole('button', { name: /Penny Prn, .*: FMLA/ }).first();
+    await expect(reviewFmlaCell).toHaveText('F');
+    await expect(reviewFmlaCell).toHaveClass(/schedule-cell-fmla/);
+    await expect
+      .poll(() =>
+        reviewFmlaCell.evaluate((cell) => getComputedStyle(cell).backgroundColor),
+      )
+      .toBe('rgb(232, 228, 248)');
 
     await page.getByRole('button', { name: 'On-call mode' }).click();
     const workingCell = page
@@ -633,6 +682,9 @@ test('creates and confirms a six-week schedule', async () => {
     ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Print schedule' })).toBeVisible();
     await expect(
+      page.locator('.history-details-grid tbody span.schedule-cell-fmla'),
+    ).toHaveCount(2);
+    await expect(
       page.getByRole('button', { name: 'Generate weekly schedule' }),
     ).toHaveCount(6);
     await page.getByRole('link', { name: 'Schedules' }).click();
@@ -650,6 +702,64 @@ test('creates and confirms a six-week schedule', async () => {
           .evaluate((cell) => cell.getBoundingClientRect().width),
       )
       .toBeGreaterThanOrEqual(96);
+  } finally {
+    await app.close();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test('rolls ongoing FMLA into the next schedule and supports undo', async () => {
+  test.setTimeout(60_000);
+  const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-fmla-rollover-e2e-'));
+  const app = await launchApp(userDataPath);
+
+  try {
+    const page = await app.firstWindow();
+    await page.waitForLoadState('load');
+    await seedConfirmedSchedule(page, {
+      startDate: '2026-10-05',
+      endDate: '2026-11-13',
+      includeWorkingDays: true,
+      includeOngoingFmla: true,
+    });
+
+    await page.getByRole('link', { name: 'Create Schedule' }).click();
+    await expect(page.getByRole('heading', { name: 'FMLA' })).toBeVisible();
+    await expect(
+      page.getByText('1 staff member rolled over from the last schedule'),
+    ).toBeVisible();
+    const fmlaSwitch = page.getByRole('switch', {
+      name: 'On FMLA for Ada Nurse',
+    });
+    await expect(fmlaSwitch).toBeChecked();
+    await expect(
+      page.getByLabel('Start date for Ada Nurse'),
+    ).toHaveValue('Since Oct 5');
+    await expect(
+      page.getByText('Rolled over', { exact: true }),
+    ).toBeVisible();
+    await expect
+      .poll(() =>
+        page
+          .locator('.fmla-row-rolled')
+          .evaluate((row) => getComputedStyle(row).backgroundColor),
+      )
+      .toBe('rgb(241, 238, 251)');
+
+    await fmlaSwitch.locator('..').click();
+    await expect(
+      page.getByText('Was rolled over', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('status').filter({
+        hasText: 'Ada Nurse removed from FMLA',
+      }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await expect(fmlaSwitch).toBeChecked();
+    await expect(
+      page.getByText('Rolled over', { exact: true }),
+    ).toBeVisible();
   } finally {
     await app.close();
     await rm(userDataPath, { recursive: true, force: true });
@@ -703,6 +813,8 @@ test('creates a CSL and schedules CHARGE coverage', async () => {
     );
 
     await page.getByRole('link', { name: 'Create Schedule' }).click();
+    await expect(page.getByRole('heading', { name: 'FMLA' })).toBeVisible();
+    await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByRole('heading', { name: /PTO calendar/ })).toBeVisible();
     await page.getByRole('button', { name: 'Generate', exact: true }).click();
     await expect(
@@ -799,7 +911,7 @@ test('handles clean, saved, and discarded schedule drafts when leaving', async (
 
     await page.getByRole('link', { name: 'Create Schedule' }).click();
     await expect(
-      page.getByRole('heading', { name: /PTO calendar/ }),
+      page.getByRole('heading', { name: 'FMLA' }),
     ).toBeVisible();
     await expect(
       page.getByRole('button', { name: 'Back' }).locator('i'),
@@ -811,6 +923,7 @@ test('handles clean, saved, and discarded schedule drafts when leaving', async (
       .toEqual([]);
 
     await page.getByRole('link', { name: 'Create Schedule' }).click();
+    await page.getByRole('button', { name: 'Continue' }).click();
     const ptoCell = page.getByRole('button', { name: /Ada Nurse,/ }).first();
     await ptoCell.click();
     await page.getByRole('link', { name: 'Schedules' }).click();

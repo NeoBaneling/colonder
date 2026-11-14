@@ -155,9 +155,26 @@ function assertValidSegmentState(value: unknown): asserts value is SegmentState 
   }
   const state = value as Record<string, unknown>;
   if (
-    !['pto', 'prn', 'review'].includes(String(state.step)) ||
+    !['fmla', 'pto', 'prn', 'review'].includes(String(state.step)) ||
     !isISODate(state.startDate) ||
     !isISODate(state.endDate) ||
+    !Array.isArray(state.fmlaEntries) ||
+    !state.fmlaEntries.every((entry) => {
+      if (typeof entry !== 'object' || entry === null) return false;
+      const fmla = entry as Record<string, unknown>;
+      return (
+        Number.isSafeInteger(fmla.staffId) &&
+        Number(fmla.staffId) > 0 &&
+        typeof fmla.onFmla === 'boolean' &&
+        (fmla.startDate === null || isISODate(fmla.startDate)) &&
+        (fmla.endDate === null || isISODate(fmla.endDate)) &&
+        typeof fmla.rolledOver === 'boolean' &&
+        isISODate(state.startDate) &&
+        isISODate(state.endDate) &&
+        String(fmla.endDate ?? state.endDate) >
+          String(fmla.startDate ?? state.startDate)
+      );
+    }) ||
     !Array.isArray(state.ptoDates) ||
     !state.ptoDates.every((key) => typeof key === 'string') ||
     !Array.isArray(state.prnDates) ||
@@ -171,7 +188,7 @@ function assertValidSegmentState(value: unknown): asserts value is SegmentState 
         shift !== null &&
         Number.isSafeInteger((shift as Record<string, unknown>).staffId) &&
         isISODate((shift as Record<string, unknown>).date) &&
-        ['work', 'pto'].includes(
+        ['work', 'pto', 'fmla'].includes(
           String((shift as Record<string, unknown>).kind),
         ) &&
         typeof (shift as Record<string, unknown>).countsTowardTargets ===
@@ -198,7 +215,15 @@ function assertValidSegmentState(value: unknown): asserts value is SegmentState 
 }
 
 const mapSegmentRow = (row: SegmentRow): ScheduleSegment => {
-  const state: unknown = JSON.parse(row.state);
+  const parsedState: unknown = JSON.parse(row.state);
+  if (typeof parsedState !== 'object' || parsedState === null) {
+    throw new TypeError('Invalid schedule draft.');
+  }
+  const state = {
+    ...parsedState,
+    fmlaEntries:
+      'fmlaEntries' in parsedState ? parsedState.fmlaEntries : [],
+  };
   assertValidSegmentState(state);
   return {
     id: row.id,

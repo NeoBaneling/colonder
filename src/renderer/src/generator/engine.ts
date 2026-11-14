@@ -2,6 +2,8 @@ import {
   Dept,
   Emp,
   Role,
+  type FmlaEntry,
+  type ScheduleSegment,
   type SegmentShift,
   type SegmentWarning,
   type Settings,
@@ -64,6 +66,53 @@ export const getSegmentDates = (
 export const cellKey = (staffId: number, date: string): string =>
   `${staffId}:${date}`;
 
+export const getFmlaCellKeys = (
+  entries: FmlaEntry[],
+  dates: string[],
+): Set<string> => {
+  const keys = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.onFmla) continue;
+    for (const date of dates) {
+      if (
+        (entry.startDate === null || date >= entry.startDate) &&
+        (entry.endDate === null || date <= entry.endDate)
+      ) {
+        keys.add(cellKey(entry.staffId, date));
+      }
+    }
+  }
+  return keys;
+};
+
+export const isValidFmlaRange = (
+  entry: Pick<FmlaEntry, 'startDate' | 'endDate'>,
+  segmentStart?: string,
+  segmentEnd?: string,
+): boolean => {
+  const start = entry.startDate ?? segmentStart;
+  const end = entry.endDate ?? segmentEnd;
+  return start === undefined || end === undefined || end > start;
+};
+
+export const getRolledOverFmlaEntries = (
+  segment: Pick<ScheduleSegment, 'startDate' | 'endDate' | 'state'>,
+  nextStartDate: string,
+): FmlaEntry[] =>
+  segment.state.fmlaEntries
+    .filter(
+      (entry) =>
+        entry.onFmla &&
+        (entry.startDate === null || entry.startDate <= segment.endDate) &&
+        (entry.endDate === null ||
+          (entry.endDate > segment.endDate && entry.endDate >= nextStartDate)),
+    )
+    .map((entry) => ({
+      ...entry,
+      startDate: entry.startDate ?? segment.startDate,
+      rolledOver: true,
+    }));
+
 const isWorking = (shifts: SegmentShift[], staffId: number, date: string) =>
   shifts.some(
     (shift) =>
@@ -84,14 +133,29 @@ export const generateSegmentShifts = (
   prnDates: string[],
   startDate: string,
   seed: number,
+  fmlaEntries: FmlaEntry[] = [],
 ): SegmentShift[] => {
   const pto = new Set(ptoDates);
+  const fmla = getFmlaCellKeys(fmlaEntries, dates);
   const prn = new Set(prnDates);
   const shifts: SegmentShift[] = [];
 
+  for (const key of fmla) {
+    const separator = key.indexOf(':');
+    const staffId = Number(key.slice(0, separator));
+    const date = key.slice(separator + 1);
+    shifts.push({
+      staffId,
+      date,
+      kind: 'fmla',
+      countsTowardTargets: false,
+    });
+  }
+
   for (const staffer of staff) {
     for (const date of dates) {
-      if (pto.has(cellKey(staffer.id, date))) {
+      const key = cellKey(staffer.id, date);
+      if (pto.has(key) && !fmla.has(key)) {
         shifts.push({
           staffId: staffer.id,
           date,
@@ -117,7 +181,9 @@ export const generateSegmentShifts = (
 
     for (const staffer of orderedStaff) {
       const availableDates = weekDates.filter(
-        (date) => !pto.has(cellKey(staffer.id, date)),
+        (date) =>
+          !pto.has(cellKey(staffer.id, date)) &&
+          !fmla.has(cellKey(staffer.id, date)),
       );
 
       if (staffer.employment === Emp.PRN) {
@@ -321,7 +387,7 @@ export const validateSegment = (
             (shift) =>
               shift.staffId === person.id &&
               shift.date === date &&
-              shift.kind === 'pto',
+              (shift.kind === 'pto' || shift.kind === 'fmla'),
           ),
       );
       const worked = weekDates.filter((date) =>
