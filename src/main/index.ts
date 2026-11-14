@@ -62,6 +62,9 @@ const isISODate = (value: unknown): value is string =>
 const isDepartment = (value: unknown): value is Dept =>
   value === Dept.PACU || value === Dept.PROC || value === Dept.PRE;
 
+const isWeeklyDepartment = (value: unknown): value is Dept | 'CHARGE' =>
+  isDepartment(value) || value === 'CHARGE';
+
 const isDepartments = (value: unknown): value is Dept[] =>
   Array.isArray(value) && value.every(isDepartment);
 
@@ -83,12 +86,15 @@ function assertValidStaff(
     typeof staff.lastName !== 'string' ||
     staff.lastName.trim().length === 0 ||
     typeof staff.title !== 'string' ||
-    (staff.role !== Role.Nurse && staff.role !== Role.Tech) ||
+    (staff.role !== Role.Nurse &&
+      staff.role !== Role.Tech &&
+      staff.role !== Role.ChargeNurse) ||
     (staff.employment !== Emp.FullTime &&
       staff.employment !== Emp.PartTime &&
       staff.employment !== Emp.PRN) ||
     !isDepartments(staff.departments) ||
     new Set(staff.departments).size !== staff.departments.length ||
+    (staff.role === Role.ChargeNurse && staff.departments.length !== 0) ||
     !timeIsValid ||
     typeof staff.isLeader !== 'boolean' ||
     typeof staff.inOrientation !== 'boolean' ||
@@ -243,8 +249,11 @@ function assertValidWeeklyAssignments(
           shift.date === item.date &&
           shift.kind === 'work',
       ) ||
-      !isDepartment(item.department) ||
-      !staffer.departments.includes(item.department) ||
+      !isWeeklyDepartment(item.department) ||
+      (item.department === 'CHARGE'
+        ? staffer.role !== Role.ChargeNurse || item.room !== null
+        : staffer.role === Role.ChargeNurse ||
+          !staffer.departments.includes(item.department)) ||
       !validRoom ||
       typeof item.startTime !== 'string' ||
       !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(item.startTime) ||

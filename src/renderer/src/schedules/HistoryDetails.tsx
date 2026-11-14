@@ -114,6 +114,7 @@ export const HistoryDetailsPage = () => {
       status: Record<string, 'W' | 'P' | 'OC' | '–'>;
     }>;
     const people = [...segment.state.staffSnapshot].sort((a, b) => {
+      if (a.role !== b.role) return a.role - b.role;
       if (a.lastName !== b.lastName) return a.lastName.localeCompare(b.lastName);
       return a.firstName.localeCompare(b.firstName);
     });
@@ -214,7 +215,10 @@ export const HistoryDetailsPage = () => {
   const nurseRows = rows.filter(
     (row) => row.employment !== Emp.PRN && row.role === Role.Nurse,
   );
-  const prnRows = rows.filter((row) => row.employment === Emp.PRN);
+  const chargeRows = rows.filter((row) => row.role === Role.ChargeNurse);
+  const prnRows = rows.filter(
+    (row) => row.employment === Emp.PRN && row.role !== Role.ChargeNurse,
+  );
   const techRows = rows.filter(
     (row) => row.role === Role.Tech && row.employment !== Emp.PRN,
   );
@@ -419,6 +423,9 @@ export const HistoryDetailsPage = () => {
                 <tr key={row.name}>
                   <th className="schedule-name-cell" scope="row">
                     <span className="schedule-staff-label">{row.name}</span>
+                    {row.role === Role.ChargeNurse && (
+                      <span className="schedule-role-label">CSL</span>
+                    )}
                   </th>
                   {allDates.map((date) => {
                     const value = row.status[date];
@@ -484,6 +491,7 @@ export const HistoryDetailsPage = () => {
           [
             { label: 'Nurses', rows: nurseRows },
             { label: 'PRN', rows: prnRows },
+            { label: 'Charge Nurses (CSL)', rows: chargeRows },
           ],
           'nurses',
           'schedule-pdf-nurses',

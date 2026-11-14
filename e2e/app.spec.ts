@@ -656,6 +656,124 @@ test('creates and confirms a six-week schedule', async () => {
   }
 });
 
+test('creates a CSL and schedules CHARGE coverage', async () => {
+  test.setTimeout(60_000);
+  const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-charge-e2e-'));
+  const app = await launchApp(userDataPath);
+
+  try {
+    const page = await app.firstWindow();
+    await page.waitForLoadState('load');
+    await page.getByRole('link', { name: 'Staff' }).click();
+    await page.getByRole('button', { name: 'Add staff' }).click();
+    await page.getByLabel('First name').fill('Casey');
+    await page.getByLabel('Last name').fill('Charge');
+    await page.getByLabel('Job title').fill('Charge Nurse');
+    await page.getByLabel('Role').selectOption('2');
+    for (const department of ['PROC', 'PACU', 'PRE']) {
+      await expect(page.getByRole('switch', { name: department })).toBeDisabled();
+    }
+    await page.getByLabel('Job title').focus();
+    await page.getByLabel('Job title').blur();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => window.staff.list()))
+      .toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            firstName: 'Casey',
+            role: 2,
+            departments: [],
+          }),
+        ]),
+      );
+    await page.evaluate(() =>
+      window.staff.create({
+        firstName: 'Jordan',
+        lastName: 'Charge',
+        title: 'Charge Nurse',
+        role: 2,
+        employment: 0,
+        departments: [],
+        startTime: '07:00',
+        isLeader: false,
+        inOrientation: false,
+        ipcIds: [],
+      }),
+    );
+
+    await page.getByRole('link', { name: 'Create Schedule' }).click();
+    await expect(page.getByRole('heading', { name: /PTO calendar/ })).toBeVisible();
+    await page.getByRole('button', { name: 'Generate', exact: true }).click();
+    await expect(
+      page.getByRole('heading', { name: 'Review & overrides' }),
+    ).toBeVisible();
+    await expect(page.locator('.schedule-role-label')).toHaveCount(2);
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const segments = await window.segments.list();
+          const state = segments[0]?.state;
+          if (!state) return null;
+          const chargeIds = new Set(
+            state.staffSnapshot
+              .filter((person) => person.role === 2)
+              .map((person) => person.id),
+          );
+          const worked = state.shifts.filter(
+            (shift) => shift.kind === 'work' && chargeIds.has(shift.staffId),
+          );
+          return {
+            allWorkdaysCovered: state.settingsSnapshot.workingDays
+              .map((enabled, day) => ({ enabled, day }))
+              .filter(({ enabled }) => enabled)
+              .every(({ day }) =>
+                Array.from({ length: 6 }, (_, week) => {
+                  const weekDates = Array.from(
+                    { length: 5 },
+                    (_, offset) => {
+                      const date = new Date(`${state.startDate}T00:00:00.000Z`);
+                      date.setUTCDate(date.getUTCDate() + week * 7 + offset);
+                      return date.toISOString().slice(0, 10);
+                    },
+                  );
+                  return weekDates.some(
+                    (date) =>
+                      new Date(`${date}T00:00:00.000Z`).getUTCDay() === day &&
+                      worked.some((shift) => shift.date === date),
+                  );
+                }).every(Boolean),
+              ),
+            chargeWorkCounts: worked.map((shift) => shift.countsTowardTargets),
+          };
+        }),
+      )
+      .toEqual({
+        allWorkdaysCovered: true,
+        chargeWorkCounts: expect.arrayContaining([false]),
+      });
+
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await page.getByRole('dialog').locator('.toggle').click();
+    await page
+      .getByRole('button', { name: 'Confirm schedule', exact: true })
+      .click();
+    await expect(page.locator('.schedule-role-label')).toHaveCount(2);
+    await page
+      .getByRole('button', { name: 'Generate weekly schedule' })
+      .first()
+      .click();
+    await expect(page.getByRole('row', { name: /CHARGE/ })).toBeVisible();
+    await expect(
+      page.locator('.weekly-schedule-grid tbody tr').filter({ hasText: 'CHARGE' })
+        .locator('.weekly-assignment'),
+    ).toHaveCount(8);
+  } finally {
+    await app.close();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
 test('handles clean, saved, and discarded schedule drafts when leaving', async () => {
   test.setTimeout(60_000);
   const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-draft-flow-e2e-'));

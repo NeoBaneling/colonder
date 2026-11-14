@@ -146,6 +146,108 @@ describe('six-week schedule engine', () => {
     });
   });
 
+  it('schedules CSLs by employment type, covers every workday when possible, and excludes them from targets', () => {
+    const chargeStaff = [
+      staffMember(1, Role.ChargeNurse),
+      staffMember(2, Role.ChargeNurse),
+      staffMember(3, Role.ChargeNurse, Emp.PartTime),
+    ];
+    const weekDates = dates.slice(0, 5);
+    const shifts = generateSegmentShifts(
+      chargeStaff,
+      weekDates,
+      [],
+      [],
+      startDate,
+      42,
+    );
+    const workShifts = shifts.filter((shift) => shift.kind === 'work');
+
+    expect(
+      workShifts.filter((shift) => shift.staffId === 1),
+    ).toHaveLength(4);
+    expect(
+      workShifts.filter((shift) => shift.staffId === 2),
+    ).toHaveLength(4);
+    expect(
+      workShifts.filter((shift) => shift.staffId === 3),
+    ).toHaveLength(3);
+    expect(
+      workShifts.every((shift) => !shift.countsTowardTargets),
+    ).toBe(true);
+    expect(
+      weekDates.every((date) =>
+        workShifts.some((shift) => shift.date === date),
+      ),
+    ).toBe(true);
+    expect(dailyCounts(weekDates[0], chargeStaff, shifts)).toEqual({
+      nurses: 0,
+      techs: 0,
+    });
+    expect(
+      validateSegment(chargeStaff, weekDates, shifts, settings).some(
+        (warning) => warning.code === 'CHARGE_COVERAGE_GAP',
+      ),
+    ).toBe(false);
+  });
+
+  it('respects CSL PTO and reports an uncovered working day', () => {
+    const chargeStaff = [staffMember(1, Role.ChargeNurse)];
+    const weekDates = dates.slice(0, 5);
+    const ptoDate = weekDates[0];
+    const shifts = generateSegmentShifts(
+      chargeStaff,
+      weekDates,
+      [cellKey(1, ptoDate)],
+      [],
+      startDate,
+      42,
+    );
+    const warnings = validateSegment(
+      chargeStaff,
+      weekDates,
+      shifts,
+      settings,
+      [],
+      startDate,
+    );
+
+    expect(
+      shifts.some(
+        (shift) =>
+          shift.staffId === 1 &&
+          shift.date === ptoDate &&
+          shift.kind === 'pto',
+      ),
+    ).toBe(true);
+    expect(
+      warnings.filter((warning) => warning.code === 'CHARGE_COVERAGE_GAP'),
+    ).toMatchObject([{ date: ptoDate }]);
+  });
+
+  it('schedules PRN CSLs only on selected commitment days', () => {
+    const commitment = cellKey(1, dates[0]);
+    const chargeStaff = [staffMember(1, Role.ChargeNurse, Emp.PRN)];
+    const shifts = generateSegmentShifts(
+      chargeStaff,
+      dates.slice(0, 5),
+      [],
+      [commitment],
+      startDate,
+      12,
+    );
+
+    expect(
+      shifts.filter((shift) => shift.kind === 'work'),
+    ).toEqual([
+      expect.objectContaining({
+        staffId: 1,
+        date: dates[0],
+        countsTowardTargets: false,
+      }),
+    ]);
+  });
+
   it('warns when PTO makes the weekly work requirement impossible', () => {
     const staff = [staffMember(1, Role.Nurse)];
     const oneAvailableDate = dates

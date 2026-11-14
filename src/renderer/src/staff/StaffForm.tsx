@@ -139,9 +139,9 @@ export const StaffForm = () => {
         canReturn
       >
         {loadError ? (
-          <p role="alert">Unable to load staff: {loadError}</p>
+          <p role='alert'>Unable to load staff: {loadError}</p>
         ) : staffList === null || (!isNew && !staff) ? (
-          <p role="status">Loading staff…</p>
+          <p role='status'>Loading staff…</p>
         ) : (
           <Formik
             initialValues={initialValues}
@@ -174,36 +174,38 @@ export const StaffForm = () => {
               isValid,
               isValidating,
               setFieldValue,
+              setValues,
+              values,
               status,
               touched,
             }) => (
               <Form>
-                <div className="card w-3/4 gap-3.5">
-                  <div className="flex flex-row space-between gap-6">
+                <div className='card w-3/4 gap-3.5'>
+                  <div className='flex flex-row space-between gap-6'>
                     <TextField
-                      name="firstName"
-                      label="First name"
+                      name='firstName'
+                      label='First name'
                       reserveErrorSpace
                     />
                     <TextField
-                      name="lastName"
-                      label="Last name"
+                      name='lastName'
+                      label='Last name'
                       reserveErrorSpace
                     />
                   </div>
-                  <div className="flex flex-row space-between gap-6">
+                  <div className='flex flex-row space-between gap-6'>
                     <TextField
-                      name="title"
-                      label="Job title"
+                      name='title'
+                      label='Job title'
                       reserveErrorSpace
                     />
-                    <div className="flex flex-1 flex-col gap-2">
-                      <label htmlFor="employment">Employment type</label>
+                    <div className='flex flex-1 flex-col gap-2'>
+                      <label htmlFor='employment'>Employment type</label>
                       <Field
-                        as="select"
-                        id="employment"
-                        aria-label="Employment"
-                        name="employment"
+                        as='select'
+                        id='employment'
+                        aria-label='Employment'
+                        name='employment'
                         onChange={(event: ChangeEvent<HTMLSelectElement>) => {
                           void setFieldValue(
                             'employment',
@@ -217,60 +219,81 @@ export const StaffForm = () => {
                       </Field>
                     </div>
                   </div>
-                  <div className="flex flex-row space-between gap-6">
-                    <div className="flex flex-1 flex-col gap-2">
-                      <label htmlFor="role">Role</label>
+                  <div className='flex flex-row space-between gap-6'>
+                    <div className='flex flex-1 flex-col gap-2'>
+                      <label htmlFor='role'>Role</label>
                       <Field
-                        as="select"
-                        id="role"
-                        aria-label="Role"
-                        name="role"
+                        as='select'
+                        id='role'
+                        aria-label='Role'
+                        name='role'
                         onChange={(event: ChangeEvent<HTMLSelectElement>) => {
-                          void setFieldValue(
-                            'role',
-                            Number(event.currentTarget.value),
+                          const role = Number(event.currentTarget.value);
+                          void setValues(
+                            {
+                              ...values,
+                              role,
+                              ...(role === Role.ChargeNurse
+                                ? {
+                                    isProc: false,
+                                    isPacu: false,
+                                    isPreop: false,
+                                  }
+                                : {}),
+                            },
+                            true,
                           );
                         }}
                       >
                         <option value={Role.Nurse}>Nurse</option>
                         <option value={Role.Tech}>Tech</option>
+                        <option value={Role.ChargeNurse}>Charge Nurse</option>
                       </Field>
                     </div>
                     <TextField
-                      name="startTime"
-                      label="Preferred start time"
-                      type="time"
+                      name='startTime'
+                      label='Preferred start time'
+                      type='time'
                     />
                   </div>
-                  <div className="flex flex-row space-between gap-6">
-                    <div className="flex flex-1 flex-col gap-2">
+                  <div className='flex flex-row space-between gap-6'>
+                    <div className='flex flex-1 flex-col gap-2'>
                       <label>Departments trained</label>
-                      <div className="flex flex-row gap-2">
+                      <div
+                        className={`flex flex-row gap-2 ${values.role === Role.ChargeNurse ? 'staff-departments-disabled' : ''}`}
+                      >
                         <Toggle
-                          name="isProc"
-                          label="PROC"
+                          name='isProc'
+                          label='PROC'
+                          disabled={values.role === Role.ChargeNurse}
                           validateOnChange
                         />
                         <label>PROC</label>
                       </div>
-                      <div className="flex flex-row gap-2">
+                      <div
+                        className={`flex flex-row gap-2 ${values.role === Role.ChargeNurse ? 'staff-departments-disabled' : ''}`}
+                      >
                         <Toggle
-                          name="isPacu"
-                          label="PACU"
+                          name='isPacu'
+                          label='PACU'
+                          disabled={values.role === Role.ChargeNurse}
                           validateOnChange
                         />
                         <label>PACU</label>
                       </div>
-                      <div className="flex flex-row gap-2">
+                      <div
+                        className={`flex flex-row gap-2 ${values.role === Role.ChargeNurse ? 'staff-departments-disabled' : ''}`}
+                      >
                         <Toggle
-                          name="isPreop"
-                          label="PRE"
+                          name='isPreop'
+                          label='PRE'
+                          disabled={values.role === Role.ChargeNurse}
                           validateOnChange
                         />
                         <label>PRE</label>
                       </div>
                       <p
-                        className="min-h-4 text-xs text-cherry-600"
+                        className='min-h-4 text-xs text-cherry-600'
                         role={
                           (touched.isProc ||
                             touched.isPacu ||
@@ -279,7 +302,7 @@ export const StaffForm = () => {
                             ? 'alert'
                             : undefined
                         }
-                        aria-live="polite"
+                        aria-live='polite'
                       >
                         {(touched.isProc ||
                           touched.isPacu ||
@@ -289,33 +312,33 @@ export const StaffForm = () => {
                           : ' '}
                       </p>
                     </div>
-                    <div className="flex flex-1 flex-col gap-2">
+                    <div className='flex flex-1 flex-col gap-2'>
                       <label>Staff settings (optional)</label>
-                      <div className="flex flex-row gap-2">
+                      <div className='flex flex-row gap-2'>
                         <Toggle
-                          name="isLeader"
-                          label="Leader"
+                          name='isLeader'
+                          label='Leader'
                           validateOnChange
                         />
                         <label>Leader</label>
                       </div>
-                      <div className="flex flex-row gap-2">
+                      <div className='flex flex-row gap-2'>
                         <Toggle
-                          name="inOrientation"
-                          label="In orientation"
+                          name='inOrientation'
+                          label='In orientation'
                           validateOnChange
                         />
                         <label>In orientation</label>
                       </div>
                       <p
-                        className="min-h-4 text-xs text-cherry-600"
+                        className='min-h-4 text-xs text-cherry-600'
                         role={
                           (touched.isLeader || touched.inOrientation) &&
                           errors.isLeader
                             ? 'alert'
                             : undefined
                         }
-                        aria-live="polite"
+                        aria-live='polite'
                       >
                         {(touched.isLeader || touched.inOrientation) &&
                         typeof errors.isLeader === 'string'
@@ -326,11 +349,11 @@ export const StaffForm = () => {
                   </div>
                   <IpcField staffNames={staffNames} />
                   {typeof status === 'string' && (
-                    <p role="alert">Unable to save staff: {status}</p>
+                    <p role='alert'>Unable to save staff: {status}</p>
                   )}
-                  <div className="flex flex-row justify-end">
+                  <div className='flex flex-row justify-end'>
                     <Button
-                      type="submit"
+                      type='submit'
                       disabled={isSubmitting || isValidating || !isValid}
                     >
                       Save
@@ -347,14 +370,14 @@ export const StaffForm = () => {
         title={staff ? `Delete ${staff.firstName} ${staff.lastName}?` : ''}
         onCancel={() => setShowDelModal(false)}
         onConfirm={handleDelete}
-        confirmLabel="Delete staff"
-        confirmVariant="danger"
+        confirmLabel='Delete staff'
+        confirmVariant='danger'
       >
-        <div className="flex flex-col gap-3">
+        <div className='flex flex-col gap-3'>
           <p>{`This removes ${staff?.firstName} from the staff list and from future schedules. Their ${staff?.ipcIds.length ?? 0} interpersonal conflicts will be cleared too. Existing schedules in History stay as they are.`}</p>
-          <p className="font-semibold">This can't be undone.</p>
+          <p className='font-semibold'>This can't be undone.</p>
           {deleteError && (
-            <p role="alert">Unable to delete staff: {deleteError}</p>
+            <p role='alert'>Unable to delete staff: {deleteError}</p>
           )}
         </div>
       </Dialog>

@@ -185,6 +185,9 @@ const InputGrid = ({
                     <span className="schedule-staff-label">
                       {person.lastName}, {person.firstName.slice(0, 1)}.
                     </span>
+                    {person.role === Role.ChargeNurse && (
+                      <span className="schedule-role-label">CSL</span>
+                    )}
                   </th>
                   {dates.map((date, columnIndex) => {
                     const key = cellKey(person.id, date);
@@ -977,6 +980,9 @@ const GeneratorPage = () => {
                           <span className="schedule-staff-label">
                             {person.lastName}, {person.firstName.slice(0, 1)}.
                           </span>
+                          {person.role === Role.ChargeNurse && (
+                            <span className="schedule-role-label">CSL</span>
+                          )}
                           {person.employment === Emp.PRN && (
                             <span
                               className="schedule-prn-lock"

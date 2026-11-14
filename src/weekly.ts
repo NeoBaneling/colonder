@@ -1,5 +1,6 @@
 import {
   Dept,
+  Role,
   type ScheduleSegment,
   type SegmentState,
   type WeeklyAssignment,
@@ -120,6 +121,21 @@ export const generateWeeklyAssignments = (
           a.firstName.localeCompare(b.firstName) ||
           a.id - b.id,
       );
+    const chargeStaff = dayStaff.filter(
+      (person) => person.role === Role.ChargeNurse,
+    );
+    for (const person of chargeStaff) {
+      assignments.push({
+        date,
+        staffId: person.id,
+        department: 'CHARGE',
+        room: null,
+        startTime: person.startTime,
+      });
+    }
+    const departmentStaff = dayStaff.filter(
+      (person) => person.role !== Role.ChargeNurse,
+    );
     const roomLoads = new Map<number, number>(
       Array.from({ length: settings.procRooms }, (_, index) => [index + 1, 0]),
     );
@@ -128,7 +144,7 @@ export const generateWeeklyAssignments = (
       [Dept.PACU, 0],
     ]);
 
-    const remaining = new Set(dayStaff);
+    const remaining = new Set(departmentStaff);
     const assignToRoom = (
       person: (typeof dayStaff)[number],
       underfilledOnly = false,
@@ -153,7 +169,7 @@ export const generateWeeklyAssignments = (
       return true;
     };
 
-    for (const person of dayStaff) {
+    for (const person of departmentStaff) {
       if (person.departments.length !== 1) continue;
       const [department] = person.departments;
       if (department === Dept.PROC) {

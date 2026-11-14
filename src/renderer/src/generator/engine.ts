@@ -136,6 +136,43 @@ export const generateSegmentShifts = (
 
       const desiredDays =
         staffer.employment === Emp.FullTime ? 4 : 3;
+      if (staffer.role === Role.ChargeNurse) {
+        const selectedDates = [...availableDates]
+          .sort((a, b) => {
+            const chargeCount = (date: string) =>
+              shifts.filter(
+                (shift) =>
+                  shift.date === date &&
+                  shift.kind === 'work' &&
+                  staff.find((member) => member.id === shift.staffId)?.role ===
+                    Role.ChargeNurse,
+              ).length;
+            const countDiff = chargeCount(a) - chargeCount(b);
+            if (countDiff !== 0) return countDiff;
+            return (
+              ((Date.parse(`${a}T00:00:00.000Z`) / DAY_MS +
+                staffer.id +
+                seed) %
+                weekDates.length) -
+              ((Date.parse(`${b}T00:00:00.000Z`) / DAY_MS +
+                staffer.id +
+                seed) %
+                weekDates.length)
+            );
+          })
+          .slice(0, desiredDays);
+
+        for (const date of selectedDates) {
+          shifts.push({
+            staffId: staffer.id,
+            date,
+            kind: 'work',
+            countsTowardTargets: false,
+          });
+        }
+        continue;
+      }
+
       const selectedDates = [...availableDates]
         .sort((a, b) => {
           const count = (date: string) =>
@@ -206,6 +243,17 @@ export const validateSegment = (
         shift.countsTowardTargets &&
         staffById.get(shift.staffId)?.role === Role.Tech,
     ).length;
+    const hasChargeNurse = dayShifts.some(
+      (shift) => staffById.get(shift.staffId)?.role === Role.ChargeNurse,
+    );
+
+    if (!hasChargeNurse) {
+      warnings.push({
+        code: 'CHARGE_COVERAGE_GAP',
+        date,
+        message: `No CSL is scheduled on ${date}.`,
+      });
+    }
 
     if (nurses < settings.targetNurses || techs < settings.targetTechs) {
       warnings.push({

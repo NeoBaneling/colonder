@@ -7,7 +7,7 @@ import {
   type MouseEvent,
 } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
-import { Dept, type ScheduleSegment, type WeeklyAssignment, type WeeklySchedule } from '@app/types';
+import { Dept, Role, type ScheduleSegment, type WeeklyAssignment, type WeeklySchedule } from '@app/types';
 import { Button } from '../inputs/Button';
 import { TimePicker } from '../inputs/TimePicker';
 import { formatTime } from '../inputs/time';
@@ -73,6 +73,13 @@ const departmentRows = (segment: ScheduleSegment) => [
       sectionEnd: false,
     }),
   ),
+  {
+    key: 'charge',
+    label: 'CHARGE',
+    department: 'CHARGE' as const,
+    room: null,
+    sectionEnd: true,
+  },
 ];
 
 export const WeeklyDetailPage = () => {
@@ -243,7 +250,7 @@ export const WeeklyDetailPage = () => {
   const canDropAssignment = (
     draggedKey: string | null,
     date: string,
-    department: Dept,
+    department: Dept | 'CHARGE',
   ) => {
     if (!draggedKey) return false;
     const assignment = assignments.find(
@@ -254,7 +261,10 @@ export const WeeklyDetailPage = () => {
       assignment &&
         person &&
         assignment.date === date &&
-        person.departments.includes(department),
+        (department === 'CHARGE'
+          ? person.role === Role.ChargeNurse
+          : person.role !== Role.ChargeNurse &&
+            person.departments.includes(department)),
     );
   };
 
@@ -424,10 +434,8 @@ export const WeeklyDetailPage = () => {
                       const invalidDepartmentMessage =
                         draggedAssignment?.date === date &&
                         draggedPerson &&
-                        !draggedPerson.departments.includes(
-                          department.department,
-                        )
-                          ? `${draggedPerson.firstName} ${draggedPerson.lastName} can't work in ${fmtDept(department.department)}`
+                        !canDropAssignment(draggedAssignmentKey, date, department.department)
+                          ? `${draggedPerson.firstName} ${draggedPerson.lastName} can't be assigned to ${department.department === 'CHARGE' ? 'CHARGE' : fmtDept(department.department)}`
                           : undefined;
                       return (
                         <td

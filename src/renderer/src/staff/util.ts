@@ -14,7 +14,10 @@ export const staffFormSchema = yup
     firstName: yup.string().required('First name is required'),
     lastName: yup.string().required('Last name is required'),
     title: yup.string().required('Job title is required'),
-    role: yup.number().oneOf([Role.Nurse, Role.Tech]).required(),
+    role: yup
+      .number()
+      .oneOf([Role.Nurse, Role.Tech, Role.ChargeNurse])
+      .required(),
     employment: yup
       .number()
       .oneOf([Emp.FullTime, Emp.PartTime, Emp.PRN])
@@ -37,6 +40,15 @@ export const staffFormSchema = yup
     'at-least-one-department',
     'Select at least one department',
     function (values) {
+      if (values?.role === Role.ChargeNurse) {
+        if (values.isProc || values.isPacu || values.isPreop) {
+          return this.createError({
+            path: 'isProc',
+            message: 'Charge nurses cannot belong to a department',
+          });
+        }
+        return true;
+      }
       if (values?.isProc || values?.isPacu || values?.isPreop) return true;
       return this.createError({ path: 'isProc' });
     },

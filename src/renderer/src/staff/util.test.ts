@@ -58,6 +58,33 @@ describe('staffFormSchema', () => {
     );
   });
 
+  it('accepts charge nurses without departments', async () => {
+    await expect(
+      staffFormSchema.validate({
+        ...validStaffForm,
+        role: Role.ChargeNurse,
+        isProc: false,
+      }),
+    ).resolves.toMatchObject({
+      role: Role.ChargeNurse,
+      isProc: false,
+      isPacu: false,
+      isPreop: false,
+    });
+  });
+
+  it('rejects charge nurses assigned to a department', async () => {
+    await expect(
+      staffFormSchema.validate({
+        ...validStaffForm,
+        role: Role.ChargeNurse,
+      }),
+    ).rejects.toMatchObject({
+      path: 'isProc',
+      message: 'Charge nurses cannot belong to a department',
+    });
+  });
+
   it('accepts start times at any minute', async () => {
     await expect(
       staffFormSchema.validate({ ...validStaffForm, startTime: '07:15' }),

@@ -1,6 +1,7 @@
 export enum Role {
   Nurse,
   Tech,
+  ChargeNurse,
 }
 
 export enum Emp {
@@ -47,6 +48,7 @@ export type SegmentWarning = {
     | 'STAFF_SHORT_OF_DAYS'
     | 'IPC_SAME_DAY'
     | 'LEADER_COVERAGE_GAP'
+    | 'CHARGE_COVERAGE_GAP'
     | 'ONCALL_MULTIPLE';
   message: string;
   date?: string;
@@ -86,7 +88,7 @@ export interface ScheduleSegment {
 export interface WeeklyAssignment {
   date: string;
   staffId: number;
-  department: Dept;
+  department: Dept | 'CHARGE';
   room: number | null;
   startTime: string;
 }

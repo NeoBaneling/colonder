@@ -147,6 +147,40 @@ describe('weekly schedule generation', () => {
     ).toBe(Dept.PRE);
   });
 
+  it('lists CSL assignments on the separate CHARGE row', () => {
+    const chargeStaff: Staff = {
+      ...staffMember(4, []),
+      role: Role.ChargeNurse,
+      title: 'Charge Nurse',
+    };
+    const chargeSegment: ScheduleSegment = {
+      ...segment,
+      state: {
+        ...segment.state,
+        staffSnapshot: [...segment.state.staffSnapshot, chargeStaff],
+        shifts: [
+          ...segment.state.shifts,
+          {
+            staffId: chargeStaff.id,
+            date: '2026-10-05',
+            kind: 'work',
+            countsTowardTargets: false,
+          },
+        ],
+      },
+    };
+
+    expect(
+      generateWeeklyAssignments(chargeSegment, ['2026-10-05']),
+    ).toContainEqual({
+      date: '2026-10-05',
+      staffId: chargeStaff.id,
+      department: 'CHARGE',
+      room: null,
+      startTime: '07:00',
+    });
+  });
+
   it('fills procedure rooms with two staff each when enough eligible staff are working', () => {
     const procStaff = Array.from({ length: 8 }, (_, index) =>
       staffMember(index + 1, [Dept.PROC]),
