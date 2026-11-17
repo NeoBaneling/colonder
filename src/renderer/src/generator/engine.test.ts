@@ -9,7 +9,9 @@ import {
   getSegmentDates,
   isValidFmlaRange,
   nextWorkingStart,
+  ptoChangeCount,
   segmentEndDate,
+  togglePtoDate,
   validateSegment,
 } from './engine';
 
@@ -43,6 +45,17 @@ const settings = {
 };
 
 describe('six-week schedule engine', () => {
+  it('toggles staff PTO dates and counts edits against the starting schedule', () => {
+    const original = ['1:2026-10-06', '2:2026-10-07'];
+    const added = togglePtoDate(original, '3:2026-10-08');
+    const changed = togglePtoDate(added, original[0]);
+
+    expect(added).toEqual([...original, '3:2026-10-08']);
+    expect(changed).toEqual(['2:2026-10-07', '3:2026-10-08']);
+    expect(ptoChangeCount(original, changed)).toBe(2);
+    expect(ptoChangeCount(original, original)).toBe(0);
+  });
+
   const startDate = '2026-10-05';
   const dates = getSegmentDates(startDate, settings.workingDays);
 

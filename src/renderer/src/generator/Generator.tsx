@@ -39,6 +39,7 @@ import {
   isValidFmlaRange,
   getSegmentDates,
   nextWorkingStart,
+  ptoChangeCount,
   segmentEndDate,
   validateSegment,
   weekIndex,
@@ -49,6 +50,9 @@ import {
   isWeekendOnCallEligible,
   onCallTarget,
 } from './onCall';
+
+const palmIcon = new URL('../assets/palm-icon.svg', import.meta.url).href;
+const palmTree = new URL('../assets/palm-tree.svg', import.meta.url).href;
 
 type View = 'fmla' | 'pto' | 'prn' | 'generating' | 'review';
 type ReviewEdit = Pick<
@@ -329,6 +333,15 @@ const GeneratorPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isWorking, setIsWorking] = useState(false);
   const [onCallMode, setOnCallMode] = useState(false);
+  const [ptoMode, setPtoMode] = useState(false);
+  const [ptoModeInitialDates, setPtoModeInitialDates] = useState<string[] | null>(
+    null,
+  );
+  const [ptoModeInitialManualEdits, setPtoModeInitialManualEdits] =
+    useState(false);
+  const [showPtoRecalculate, setShowPtoRecalculate] = useState(false);
+  const [isRecalculatingPto, setIsRecalculatingPto] = useState(false);
+  const [paintPtoValue, setPaintPtoValue] = useState<boolean | null>(null);
   const [onCallPopupKey, setOnCallPopupKey] = useState<string | null>(null);
   const [weekendPopupWeek, setWeekendPopupWeek] = useState<string | null>(null);
   const [pendingOnCallWarning, setPendingOnCallWarning] = useState<{
@@ -560,6 +573,10 @@ const GeneratorPage = () => {
     () => new Set(state?.ptoDates ?? []),
     [state?.ptoDates],
   );
+  const ptoChanges =
+    state && ptoModeInitialDates
+      ? ptoChangeCount(ptoModeInitialDates, state.ptoDates)
+      : 0;
   const prnSet = useMemo(
     () => new Set(state?.prnDates ?? []),
     [state?.prnDates],
@@ -771,6 +788,118 @@ const GeneratorPage = () => {
       onCallAutoApplied,
       hasManualEdits: true,
     });
+  };
+
+  const startPtoMode = () => {
+    if (!state) return;
+    setPtoModeInitialDates([...state.ptoDates]);
+    setPtoModeInitialManualEdits(state.hasManualEdits);
+    setPtoMode(true);
+    setOnCallMode(false);
+    setSelectedWork(null);
+    setOnCallPopupKey(null);
+    setWeekendPopupWeek(null);
+  };
+
+  const requestPtoRecalculation = () => {
+    setPtoMode(false);
+    setSelectedWork(null);
+    if (ptoChanges === 0) {
+      setPtoModeInitialDates(null);
+      setShowPtoRecalculate(false);
+      return;
+    }
+    setShowPtoRecalculate(true);
+  };
+
+  const setReviewPto = (key: string, value: boolean) => {
+    setState((current) => {
+      if (!current) return current;
+      const ptoDates = new Set(current.ptoDates);
+      if (value) ptoDates.add(key);
+      else ptoDates.delete(key);
+      return {
+        ...current,
+        ptoDates: [...ptoDates],
+        hasManualEdits: true,
+      };
+    });
+  };
+
+  const keepEditingPto = () => {
+    setShowPtoRecalculate(false);
+    setPtoMode(true);
+  };
+
+  const discardPtoChanges = () => {
+    if (state && ptoModeInitialDates) {
+      setState({
+        ...state,
+        ptoDates: ptoModeInitialDates,
+        hasManualEdits: ptoModeInitialManualEdits,
+      });
+    }
+    setPtoModeInitialDates(null);
+    setPtoMode(false);
+    setShowPtoRecalculate(false);
+  };
+
+  const recalculateAroundPto = () => {
+    if (!state) return;
+    const changedDates = ptoModeInitialDates
+      ? ptoChangeCount(ptoModeInitialDates, state.ptoDates)
+      : 0;
+    setShowPtoRecalculate(false);
+    setPtoMode(false);
+    setSelectedWork(null);
+    setIsWorking(true);
+    setIsRecalculatingPto(true);
+    setView('generating');
+    window.setTimeout(() => {
+      try {
+        const recalculated: SegmentState = {
+          ...state,
+          step: 'review',
+          shifts: generateSegmentShifts(
+            state.staffSnapshot,
+            getSegmentDates(state.startDate, state.settingsSnapshot.workingDays),
+            state.ptoDates,
+            state.prnDates,
+            state.startDate,
+            state.seed,
+            state.fmlaEntries,
+          ),
+          onCall: [],
+          onCallDepartments: {},
+          weekendOnCall: [],
+          onCallManuallyEdited: false,
+          onCallAutoApplied: false,
+          hasManualEdits: false,
+        };
+        setState(recalculated);
+        setUndoStack([]);
+        setRedoStack([]);
+        setOnCallPopupKey(null);
+        setWeekendPopupWeek(null);
+        setPtoModeInitialDates(null);
+        setView('review');
+        toast.success(
+          'Schedule recalculated',
+          `${changedDates} PTO ${changedDates === 1 ? 'change' : 'changes'} applied.`,
+        );
+      } catch (reason) {
+        const message =
+          reason instanceof Error
+            ? reason.message
+            : 'Unable to recalculate the schedule.';
+        setSavingError(message);
+        setView('review');
+        toast.failure("Couldn't recalculate schedule", message);
+      } finally {
+        setIsWorking(false);
+        setIsRecalculatingPto(false);
+      }
+    }, 350);
   };
 
   const setOnCallAssignment = (
@@ -1138,7 +1267,11 @@ const GeneratorPage = () => {
                         className={`schedule-step ${isCurrent ? 'current' : ''} ${isComplete ? 'complete' : ''}`}
                       >
                         <span className='schedule-step-icon'>
-                          <i className={`bi ${icon}`} />
+                          {label === 'PTO' ? (
+                            <img src={palmIcon} alt='' aria-hidden='true' />
+                          ) : (
+                            <i className={`bi ${icon}`} />
+                          )}
                         </span>
                         <span>{label}</span>
                       </div>
@@ -1391,7 +1524,7 @@ const GeneratorPage = () => {
                   ariaLabel='Back'
                   icon='bi-chevron-left'
                   variant='outlined'
-                  onClick={() => {
+                  onClick={(event) => {
                     setError(null);
                     if (view === 'prn') {
                       setState((current) =>
@@ -1436,8 +1569,16 @@ const GeneratorPage = () => {
                 className='schedule-spinner animate-spin motion-reduce:animate-none'
                 aria-hidden='true'
               />
-              <h2>Building your schedule…</h2>
-              <p className='text-sm!'>Balancing coverage across six weeks.</p>
+              <h2>
+                {isRecalculatingPto
+                  ? 'Recalculating around the new PTO…'
+                  : 'Building your schedule…'}
+              </h2>
+              <p className='text-sm!'>
+                {isRecalculatingPto
+                  ? 'Balancing daily counts. This takes a few seconds.'
+                  : 'Balancing coverage across six weeks.'}
+              </p>
             </div>
           )}
 
@@ -1452,8 +1593,15 @@ const GeneratorPage = () => {
                   )}
                 </div>
                 <div className='flex flex-wrap gap-2'>
-                  {!onCallMode && (
+                  {!onCallMode && !ptoMode && (
                     <>
+                      <IconButton
+                        ariaLabel='Turn on PTO mode'
+                        title='Turn on PTO mode'
+                        iconImage={palmIcon}
+                        variant='outlined'
+                        onClick={startPtoMode}
+                      />
                       <IconButton
                         ariaLabel='Turn on on-call mode'
                         title='Turn on on-call mode'
@@ -1559,9 +1707,48 @@ const GeneratorPage = () => {
                 </section>
               )}
 
+              {(ptoMode || showPtoRecalculate) && (
+                <section className='pto-banner' aria-label='PTO mode'>
+                  <div className='pto-banner-title'>
+                    <img src={palmTree} alt='' aria-hidden='true' />
+                    <strong>PTO mode</strong>
+                  </div>
+                  <p className='pto-banner-instructions'>
+                    Click any day to mark or clear PTO. It replaces working and
+                    on-call days. FMLA days are locked.
+                  </p>
+                  <div className='pto-banner-controls'>
+                    <span className='pto-change-count'>
+                      {ptoChanges} {ptoChanges === 1 ? 'change' : 'changes'}
+                    </span>
+                    <label className='oncall-mode-control'>
+                      <span>PTO mode</span>
+                      <button
+                        type='button'
+                        role='switch'
+                        aria-label='Turn off PTO mode'
+                        aria-checked={ptoMode}
+                        className='oncall-mode-switch'
+                        onClick={requestPtoRecalculation}
+                      >
+                        <span />
+                      </button>
+                    </label>
+                    <img
+                      className='pto-banner-palm-end'
+                      src={palmTree}
+                      alt=''
+                      aria-hidden='true'
+                    />
+                  </div>
+                </section>
+              )}
+
               <div
                 className='schedule-grid-scroll review-grid-scroll'
                 data-scrolled={reviewGridScrolled}
+                onPointerUp={() => setPaintPtoValue(null)}
+                onPointerLeave={() => setPaintPtoValue(null)}
                 onScroll={(event) =>
                   setReviewGridScrolled(event.currentTarget.scrollLeft > 0)
                 }
@@ -1639,6 +1826,9 @@ const GeneratorPage = () => {
                               item.kind === 'work',
                           );
                           const isOnCall = state.onCall.includes(key);
+                          const showOnCall = isOnCall && !ptoMode;
+                          const showWork =
+                            shift !== undefined || (ptoMode && isOnCall);
                           const departmentChoices = [
                             Dept.PROC,
                             Dept.PACU,
@@ -1673,21 +1863,25 @@ const GeneratorPage = () => {
                           const canSelect =
                             shift !== undefined && !isOnCall && !onCallMode;
                           const isPrn = person.employment === Emp.PRN;
-                          const enabled = onCallMode
-                            ? !isLeave && shift !== undefined
-                            : isPrn
-                              ? false
-                              : selectedWork
-                                ? isSwapTarget || canSelect
-                                : canSelect;
+                          const countsTowardTargets =
+                            shift?.countsTowardTargets ?? true;
+                          const enabled = ptoMode
+                            ? !isFmla
+                            : onCallMode
+                              ? !isLeave && shift !== undefined
+                              : isPrn
+                                ? false
+                                : selectedWork
+                                  ? isSwapTarget || canSelect
+                                  : canSelect;
                           const label = isFmla
                             ? 'FMLA'
                             : isPto
                               ? 'PTO'
-                              : isOnCall
+                              : showOnCall
                                 ? `On-call ${callDepartment === Dept.PACU ? 'PACU' : 'PROC'}`
-                                : shift
-                                  ? shift.countsTowardTargets
+                                : showWork
+                                  ? countsTowardTargets
                                     ? 'Working'
                                     : 'Working, does not count toward target'
                                   : 'Off';
@@ -1696,7 +1890,9 @@ const GeneratorPage = () => {
                               <button
                                 type='button'
                                 aria-label={`${person.firstName} ${person.lastName}, ${formatDate(date)}: ${label}`}
-                                aria-pressed={isSelected || isOnCall}
+                                aria-pressed={
+                                  ptoMode ? isPto : isSelected || isOnCall
+                                }
                                 aria-haspopup={
                                   shouldShowDepartmentPopup
                                     ? 'dialog'
@@ -1709,9 +1905,27 @@ const GeneratorPage = () => {
                                 disabled={!enabled}
                                 data-grid-row={rowIndex}
                                 data-grid-column={columnIndex}
-                                className={`schedule-cell ${showPto ? 'schedule-cell-pto' : ''} ${isFmla ? 'schedule-cell-fmla' : ''} ${shift ? 'schedule-cell-work' : ''} ${isOnCall ? `schedule-cell-oncall ${callDepartment === Dept.PACU ? 'schedule-cell-oncall-pacu' : 'schedule-cell-oncall-proc'}` : ''} ${isSelected ? 'schedule-cell-selected' : ''} ${isSwapTarget ? 'schedule-cell-target' : ''} ${!onCallMode && isPrn ? 'schedule-cell-disabled' : ''}`}
-                                onClick={() => {
-                                  if (onCallMode && !isLeave && shift) {
+                                className={`schedule-cell ${showPto ? 'schedule-cell-pto' : ''} ${isFmla ? 'schedule-cell-fmla' : ''} ${showWork && !isPto ? 'schedule-cell-work' : ''} ${showOnCall ? `schedule-cell-oncall ${callDepartment === Dept.PACU ? 'schedule-cell-oncall-pacu' : 'schedule-cell-oncall-proc'}` : ''} ${isSelected ? 'schedule-cell-selected' : ''} ${isSwapTarget ? 'schedule-cell-target' : ''} ${!onCallMode && isPrn && !ptoMode ? 'schedule-cell-disabled' : ''}`}
+                                onPointerDown={(event) => {
+                                  if (!ptoMode || event.button !== 0 || isFmla) {
+                                    return;
+                                  }
+                                  event.preventDefault();
+                                  const nextValue = !isPto;
+                                  setPaintPtoValue(nextValue);
+                                  setReviewPto(key, nextValue);
+                                }}
+                                onPointerEnter={() => {
+                                  if (ptoMode && !isFmla && paintPtoValue !== null) {
+                                    setReviewPto(key, paintPtoValue);
+                                  }
+                                }}
+                                onClick={(event) => {
+                                  if (ptoMode && !isFmla) {
+                                    if (event.detail === 0) {
+                                      setReviewPto(key, !isPto);
+                                    }
+                                  } else if (onCallMode && !isLeave && shift) {
                                     beginOnCallAssignment(person, date);
                                   } else if (isSwapTarget && selectedWork) {
                                     makeSwap(
@@ -1735,9 +1949,9 @@ const GeneratorPage = () => {
                                   ? 'F'
                                   : showPto
                                     ? 'P'
-                                    : isOnCall
+                                    : showOnCall
                                       ? 'OC'
-                                      : shift
+                                      : showWork
                                         ? 'W'
                                         : '–'}
                               </button>
@@ -1962,8 +2176,10 @@ const GeneratorPage = () => {
               <div className='flex flex-col gap-2'>
                 <p className='text-sm!'>
                   W work · – off · P PTO · F FMLA · OC on-call. Counts exclude
-                  orientation staff. Select a workday, then a highlighted off
-                  day to swap.
+                  orientation staff.{' '}
+                  {ptoMode
+                    ? 'Click any non-FMLA day to add or clear PTO.'
+                    : 'Select a workday, then a highlighted off day to swap.'}
                 </p>
               </div>
 
@@ -1986,12 +2202,16 @@ const GeneratorPage = () => {
                 />
                 <IconButton
                   ariaLabel='Confirm'
-                  title='Confirm schedule'
+                  title={ptoMode ? 'Confirm PTO changes' : 'Confirm schedule'}
                   icon='bi-check-lg'
                   variant='filled'
                   onClick={() => {
-                    setAcknowledged(false);
-                    setShowConfirm(true);
+                    if (ptoMode) {
+                      requestPtoRecalculation();
+                    } else {
+                      setAcknowledged(false);
+                      setShowConfirm(true);
+                    }
                   }}
                 />
               </div>
@@ -2022,6 +2242,24 @@ const GeneratorPage = () => {
               put them on call?
             </p>
           ))}
+      </Dialog>
+
+      <Dialog
+        open={showPtoRecalculate}
+        title='Recalculate the schedule?'
+        onCancel={keepEditingPto}
+        onSecondary={discardPtoChanges}
+        onConfirm={recalculateAroundPto}
+        cancelLabel='Keep editing'
+        secondaryLabel='Discard changes'
+        confirmLabel='Recalculate'
+        confirmDisabled={isWorking}
+        secondaryDisabled={isWorking}
+      >
+        <p>
+          Colonder will rebalance daily counts around PTO changes. Working and
+          on-call days you set by hand may be lost.
+        </p>
       </Dialog>
 
       <Dialog

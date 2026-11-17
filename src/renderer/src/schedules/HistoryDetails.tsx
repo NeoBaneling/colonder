@@ -518,11 +518,13 @@ export const HistoryDetailsPage = () => {
                           ? 'schedule-cell-pto'
                           : value === 'F'
                             ? 'schedule-cell-fmla'
-                            : onCallDepartment === Dept.PACU
-                              ? 'schedule-cell-oncall schedule-cell-oncall-pacu'
-                              : onCallDepartment === Dept.PROC
-                                ? 'schedule-cell-oncall schedule-cell-oncall-proc'
-                                : '';
+                            : value === '–' || value === undefined
+                              ? 'schedule-cell-off'
+                              : onCallDepartment === Dept.PACU
+                                ? 'schedule-cell-oncall schedule-cell-oncall-pacu'
+                                : onCallDepartment === Dept.PROC
+                                  ? 'schedule-cell-oncall schedule-cell-oncall-proc'
+                                  : '';
                     return (
                       <td
                         key={`${row.name}-${date}`}

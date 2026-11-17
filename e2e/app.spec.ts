@@ -18,6 +18,9 @@ type ConfirmedScheduleSeed = {
   startDate: string;
   endDate: string;
   shiftDates?: string[];
+  ptoDate?: string;
+  onCallDate?: string;
+  offDate?: string;
   includeWorkingDays?: boolean;
   includeToday?: boolean;
   includeOngoingFmla?: boolean;
@@ -31,6 +34,9 @@ const seedConfirmedSchedule = async (
     startDate,
     endDate,
     shiftDates = [],
+    ptoDate,
+    onCallDate,
+    offDate,
     includeWorkingDays = false,
     includeToday = false,
     includeOngoingFmla = false,
@@ -63,10 +69,14 @@ const seedConfirmedSchedule = async (
         date <= fromIso(endDate);
         date.setDate(date.getDate() + 1)
       ) {
-        if (settings.workingDays[date.getDay()]) dates.add(toIso(date));
+        if (settings.workingDays[date.getDay()] && toIso(date) !== offDate) {
+          dates.add(toIso(date));
+        }
       }
     }
     if (includeToday) dates.add(toIso(new Date()));
+    if (ptoDate) dates.add(ptoDate);
+    if (onCallDate) dates.add(onCallDate);
     const state = {
       step: 'review' as const,
       startDate,
@@ -80,15 +90,22 @@ const seedConfirmedSchedule = async (
             rolledOver: false,
           }]
         : [],
-      ptoDates: [],
+      ptoDates: ptoDate ? [`${person.id}:${ptoDate}`] : [],
       prnDates: [],
       shifts: [...dates].map((date) => ({
         staffId: person.id,
         date,
-        kind: includeOngoingFmla ? 'fmla' as const : 'work' as const,
-        countsTowardTargets: !includeOngoingFmla,
+        kind: includeOngoingFmla
+          ? 'fmla' as const
+          : date === ptoDate
+            ? 'pto' as const
+            : 'work' as const,
+        countsTowardTargets: !includeOngoingFmla && date !== ptoDate,
       })),
-      onCall: [],
+      onCall: onCallDate ? [`${person.id}:${onCallDate}`] : [],
+      onCallDepartments: onCallDate
+        ? { [`${person.id}:${onCallDate}`]: 0 }
+        : {},
       staffSnapshot: [person],
       settingsSnapshot: settings,
       seed: 1,
@@ -138,6 +155,7 @@ test('saves and restores settings from SQLite', async () => {
         deleteAfter: 24,
         isDark: false,
       });
+
     await expect(
       page.getByRole('heading', { name: 'Let’s meet the team' }),
     ).toBeVisible();
@@ -163,6 +181,179 @@ test('saves and restores settings from SQLite', async () => {
     await expect
       .poll(() => page.evaluate(() => window.settings.get()))
       .toMatchObject({ isDark: false });
+  } finally {
+    await app.close();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test('recalculates the review schedule after PTO edits', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-pto-e2e-'));
+  const app = await launchApp(userDataPath);
+
+  try {
+    const page = await app.firstWindow();
+    await page.waitForLoadState('load');
+    const draft = await page.evaluate(async () => {
+      const [person, settings] = await Promise.all([
+        window.staff.create({
+          firstName: 'Pto',
+          lastName: 'Nurse',
+          title: 'RN',
+          role: 0,
+          employment: 0,
+          departments: [0],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
+        window.settings.get(),
+      ]);
+      const startDate = '2026-10-05';
+      const dates = Array.from({ length: 42 }, (_, index) => {
+        const date = new Date(`${startDate}T00:00:00.000Z`);
+        date.setUTCDate(date.getUTCDate() + index);
+        return date.toISOString().slice(0, 10);
+      }).filter((date) =>
+        settings.workingDays[new Date(`${date}T00:00:00.000Z`).getUTCDay()],
+      );
+      const state = {
+        step: 'review' as const,
+        startDate,
+        endDate: '2026-11-13',
+        fmlaEntries: [],
+        ptoDates: [],
+        prnDates: [],
+        shifts: dates.map((date) => ({
+          staffId: person.id,
+          date,
+          kind: 'work' as const,
+          countsTowardTargets: true,
+        })),
+        onCall: [`${person.id}:${dates[0]}`],
+        onCallDepartments: { [`${person.id}:${dates[0]}`]: 0 },
+        staffSnapshot: [person],
+        settingsSnapshot: settings,
+        seed: 1,
+        hasManualEdits: false,
+      };
+      return {
+        id: (await window.segments.create(state)).id,
+        personId: person.id,
+        firstDate: dates[0],
+      };
+    });
+
+    await page.evaluate((id) => {
+      window.location.hash = `/new?draft=${id}`;
+    }, draft.id);
+    await expect(
+      page.getByRole('heading', { name: 'Review & overrides' }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Turn on PTO mode' }).click();
+    await expect(page.getByRole('region', { name: 'PTO mode' })).toBeVisible();
+    const firstWorkingCell = page
+      .getByRole('button', { name: /Pto Nurse, .*: Working/ })
+      .first();
+    await expect(firstWorkingCell).toHaveText('W');
+    await expect(firstWorkingCell).not.toHaveClass(/schedule-cell-oncall/);
+    await page.getByRole('switch', { name: 'Turn off PTO mode' }).click();
+    await expect(
+      page.getByRole('dialog', { name: 'Recalculate the schedule?' }),
+    ).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Turn on PTO mode' }).click();
+    await expect(page.getByRole('region', { name: 'PTO mode' })).toBeVisible();
+
+    const workingCells = page
+      .getByRole('button', { name: /Pto Nurse, .*: Working/ });
+    const startCell = await workingCells.nth(0).boundingBox();
+    const endCell = await workingCells.nth(1).boundingBox();
+    expect(startCell).not.toBeNull();
+    expect(endCell).not.toBeNull();
+    await page.mouse.move(
+      startCell!.x + startCell!.width / 2,
+      startCell!.y + startCell!.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(
+      endCell!.x + endCell!.width / 2,
+      endCell!.y + endCell!.height / 2,
+    );
+    await page.mouse.up();
+    const ptoCell = page.getByRole('button', {
+      name: /Pto Nurse, .*: PTO/,
+    }).nth(0);
+    const secondPtoCell = page.getByRole('button', {
+      name: /Pto Nurse, .*: PTO/,
+    }).nth(1);
+    const secondCell = page.locator(
+      '.review-grid .schedule-cell[data-grid-row="0"][data-grid-column="1"]',
+    );
+    await expect(ptoCell).toHaveAttribute('aria-pressed', 'true');
+    await expect(secondPtoCell).toHaveAttribute('aria-pressed', 'true');
+    await expect(ptoCell).toHaveCSS('background-color', 'rgb(253, 228, 234)');
+    await expect(ptoCell).not.toHaveClass(/schedule-cell-pto-added|schedule-cell-pto-removed/);
+    await expect(page.getByText('2 changes', { exact: true })).toBeVisible();
+    await secondCell.click();
+    await expect(secondCell).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.getByText('1 change', { exact: true })).toBeVisible();
+
+    await page.getByRole('switch', { name: 'Turn off PTO mode' }).click();
+    const recalculateDialog = page.getByRole('dialog', {
+      name: 'Recalculate the schedule?',
+    });
+    await expect(recalculateDialog).toBeVisible();
+    await recalculateDialog
+      .getByRole('button', { name: 'Keep editing' })
+      .click();
+    await expect(
+      page.getByRole('switch', { name: 'Turn off PTO mode' }),
+    ).toHaveAttribute('aria-checked', 'true');
+
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(recalculateDialog).toBeVisible();
+    await recalculateDialog.getByRole('button', { name: 'Recalculate' }).click();
+    await expect(
+      page.getByRole('heading', {
+        name: 'Recalculating around the new PTO…',
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('heading', { name: 'Review & overrides' }),
+    ).toBeVisible();
+    await expect(page.getByRole('status')).toContainText('Schedule recalculated');
+
+    await expect
+      .poll(() =>
+        page.evaluate(async ({ id, personId, firstDate }) => {
+          const saved = (await window.segments.list()).find(
+            (segment) => segment.id === id,
+          );
+          const key = `${personId}:${firstDate}`;
+          return {
+            hasPtoDate: saved?.state.ptoDates.includes(key),
+            hasPtoShift: saved?.state.shifts.some(
+              (shift) =>
+                shift.staffId === personId &&
+                shift.date === firstDate &&
+                shift.kind === 'pto',
+            ),
+            hasWorkShift: saved?.state.shifts.some(
+              (shift) =>
+                shift.staffId === personId &&
+                shift.date === firstDate &&
+                shift.kind === 'work',
+            ),
+          };
+        }, draft),
+      )
+      .toEqual({
+        hasPtoDate: true,
+        hasPtoShift: true,
+        hasWorkShift: false,
+      });
   } finally {
     await app.close();
     await rm(userDataPath, { recursive: true, force: true });
@@ -834,6 +1025,12 @@ test('creates and confirms a six-week schedule', async () => {
     await expect(page.getByRole('button', { name: 'Continue' })).toBeEnabled();
     await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByRole('heading', { name: /PTO calendar/ })).toBeVisible();
+    const ptoStep = page
+      .locator('.schedule-step-wrap')
+      .filter({ hasText: 'PTO' })
+      .locator('img');
+    await expect(ptoStep).toBeVisible();
+    await expect(ptoStep).toHaveAttribute('src', /palm-icon/);
     await expect
       .poll(() =>
         page.locator('.input-grid').evaluate(
@@ -1387,6 +1584,54 @@ test('handles clean, saved, and discarded schedule drafts when leaving', async (
     await expect
       .poll(() => page.evaluate(() => window.segments.list()))
       .toEqual([]);
+  } finally {
+    await app.close();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
+test('preserves PTO and off-day colors while hovering schedule details', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-detail-hover-e2e-'));
+  const app = await launchApp(userDataPath);
+
+  try {
+    const page = await app.firstWindow();
+    await page.clock.install({ time: new Date('2026-10-21T12:00:00') });
+    await seedConfirmedSchedule(page, {
+      startDate: '2026-10-05',
+      endDate: '2026-11-15',
+      shiftDates: ['2026-10-05'],
+      ptoDate: '2026-10-06',
+      onCallDate: '2026-10-07',
+      offDate: '2026-10-08',
+      includeToday: true,
+    });
+
+    await page.getByRole('link', { name: 'Schedules' }).click();
+    await page.getByRole('link', { name: 'Home' }).click();
+    await page
+      .getByRole('button', { name: 'Open six-week schedule details' })
+      .click();
+    const historyGrid = page.locator('.history-details-grid');
+    const ptoDetailsCell = historyGrid
+      .locator('tbody span.schedule-cell-pto')
+      .first();
+    await historyGrid.locator('thead th[title]').nth(1).hover();
+    await expect(ptoDetailsCell.locator('xpath=..')).toHaveClass(
+      /history-week-hover/,
+    );
+    await expect(ptoDetailsCell).toHaveCSS(
+      'background-color',
+      'rgb(253, 228, 234)',
+    );
+    const offDetailsCell = historyGrid.locator(
+      'tbody td.history-week-group-0.schedule-cell-off .schedule-cell-off',
+    ).first();
+    await expect(offDetailsCell).toBeVisible();
+    await expect(offDetailsCell.locator('xpath=..')).toHaveCSS(
+      'background-color',
+      'rgb(244, 248, 248)',
+    );
   } finally {
     await app.close();
     await rm(userDataPath, { recursive: true, force: true });

@@ -66,6 +66,23 @@ export const getSegmentDates = (
 export const cellKey = (staffId: number, date: string): string =>
   `${staffId}:${date}`;
 
+export const togglePtoDate = (ptoDates: string[], key: string): string[] =>
+  ptoDates.includes(key)
+    ? ptoDates.filter((date) => date !== key)
+    : [...ptoDates, key];
+
+export const ptoChangeCount = (
+  originalDates: string[],
+  currentDates: string[],
+): number => {
+  const original = new Set(originalDates);
+  const current = new Set(currentDates);
+  return (
+    [...original].filter((date) => !current.has(date)).length +
+    [...current].filter((date) => !original.has(date)).length
+  );
+};
+
 export const getFmlaCellKeys = (
   entries: FmlaEntry[],
   dates: string[],
