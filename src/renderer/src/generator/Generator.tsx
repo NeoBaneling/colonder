@@ -13,6 +13,7 @@ import {
   useSearchParams,
 } from 'react-router';
 import {
+  Dept,
   Emp,
   Role,
   type FmlaEntry,
@@ -42,9 +43,32 @@ import {
   validateSegment,
   weekIndex,
 } from './engine';
+import {
+  getAutoOnCallSchedule,
+  isOnCallEligible,
+  isWeekendOnCallEligible,
+  onCallTarget,
+} from './onCall';
 
 type View = 'fmla' | 'pto' | 'prn' | 'generating' | 'review';
-type ReviewEdit = Pick<SegmentState, 'shifts' | 'onCall'>;
+type ReviewEdit = Pick<
+  SegmentState,
+  | 'shifts'
+  | 'onCall'
+  | 'onCallDepartments'
+  | 'weekendOnCall'
+  | 'onCallManuallyEdited'
+  | 'onCallAutoApplied'
+>;
+
+const reviewEdit = (state: SegmentState): ReviewEdit => ({
+  shifts: state.shifts,
+  onCall: state.onCall,
+  onCallDepartments: state.onCallDepartments ?? {},
+  weekendOnCall: state.weekendOnCall ?? [],
+  onCallManuallyEdited: state.onCallManuallyEdited ?? false,
+  onCallAutoApplied: state.onCallAutoApplied ?? false,
+});
 
 const formatDate = (date: string): string =>
   new Intl.DateTimeFormat('en-US', {
@@ -61,12 +85,12 @@ const fmlaAppliesTo = (
   segmentStart: string,
   segmentEnd: string,
 ): string => {
-  const start = entry.startDate && entry.startDate > segmentStart
-    ? entry.startDate
-    : segmentStart;
-  const end = entry.endDate && entry.endDate < segmentEnd
-    ? entry.endDate
-    : segmentEnd;
+  const start =
+    entry.startDate && entry.startDate > segmentStart
+      ? entry.startDate
+      : segmentStart;
+  const end =
+    entry.endDate && entry.endDate < segmentEnd ? entry.endDate : segmentEnd;
   if (start > end) return 'Outside schedule';
   if (start === segmentStart && end === segmentEnd) return 'Whole schedule';
   const weeks = Math.ceil(
@@ -92,7 +116,10 @@ const weekGroups = (dates: string[], startDate: string) => {
 const sortedStaff = (staff: Staff[]): Staff[] =>
   [...staff].sort((a, b) => {
     if (a.role !== b.role) return a.role - b.role;
-    return a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName);
+    return (
+      a.lastName.localeCompare(b.lastName) ||
+      a.firstName.localeCompare(b.firstName)
+    );
   });
 
 const moveGridFocus = (
@@ -157,15 +184,15 @@ const InputGrid = ({
   const people = sortedStaff(staff);
 
   return (
-    <section className="flex min-w-0 flex-col gap-3">
-      <h2 className="text-sm! sm:text-base!">
-        {title} <span className="font-normal">({instructions})</span>
+    <section className='flex min-w-0 flex-col gap-3'>
+      <h2 className='text-sm! sm:text-base!'>
+        {title} <span className='font-normal'>({instructions})</span>
       </h2>
       {people.length === 0 ? (
-        <p className="text-sm!">No staff members in this group.</p>
+        <p className='text-sm!'>No staff members in this group.</p>
       ) : (
         <div
-          className="schedule-grid-scroll"
+          className='schedule-grid-scroll'
           data-scrolled={isScrolled}
           onScroll={(event) =>
             setIsScrolled(event.currentTarget.scrollLeft > 0)
@@ -173,18 +200,18 @@ const InputGrid = ({
           onPointerUp={() => setPaintValue(null)}
           onPointerLeave={() => setPaintValue(null)}
         >
-          <table className="schedule-grid input-grid">
+          <table className='schedule-grid input-grid'>
             <thead>
               <tr>
-                <th className="schedule-name-cell" rowSpan={2} scope="col">
+                <th className='schedule-name-cell' rowSpan={2} scope='col'>
                   Staff
                 </th>
                 {groups.map((group) => (
                   <th
                     key={group.week}
-                    className="schedule-week-cell"
+                    className='schedule-week-cell'
                     colSpan={group.dates.length}
-                    scope="colgroup"
+                    scope='colgroup'
                   >
                     Week {group.week + 1}
                   </th>
@@ -193,10 +220,10 @@ const InputGrid = ({
               <tr>
                 {dates.map((date) => (
                   <th
-                    className="schedule-day-cell"
+                    className='schedule-day-cell'
                     key={date}
                     id={`day-${date}`}
-                    scope="col"
+                    scope='col'
                     title={formatDate(date)}
                   >
                     {dayLabel(date).slice(0, 1)}
@@ -207,12 +234,12 @@ const InputGrid = ({
             <tbody>
               {people.map((person, rowIndex) => (
                 <tr key={person.id}>
-                  <th className="schedule-name-cell" scope="row">
-                    <span className="schedule-staff-label">
+                  <th className='schedule-name-cell' scope='row'>
+                    <span className='schedule-staff-label'>
                       {person.lastName}, {person.firstName.slice(0, 1)}.
                     </span>
                     {person.role === Role.ChargeNurse && (
-                      <span className="schedule-role-label">CSL</span>
+                      <span className='schedule-role-label'>CSL</span>
                     )}
                   </th>
                   {dates.map((date, columnIndex) => {
@@ -222,13 +249,13 @@ const InputGrid = ({
                     return (
                       <td key={date}>
                         <button
-                          type="button"
+                          type='button'
                           aria-label={`${person.firstName} ${person.lastName}, ${formatDate(date)}: ${isDisabled ? 'unavailable due to leave' : isSelected ? 'selected' : 'not selected'}`}
                           aria-pressed={isSelected}
                           disabled={isDisabled}
                           data-grid-row={rowIndex}
                           data-grid-column={columnIndex}
-                          className={`schedule-cell ${isSelected ? kind === 'pto' ? 'schedule-cell-pto' : 'schedule-cell-prn' : ''}`}
+                          className={`schedule-cell ${isSelected ? (kind === 'pto' ? 'schedule-cell-pto' : 'schedule-cell-prn') : ''}`}
                           onPointerDown={(event) => {
                             if (event.button !== 0) return;
                             event.preventDefault();
@@ -257,15 +284,17 @@ const InputGrid = ({
             {title === 'PTO calendar' && (
               <tfoot>
                 <tr>
-                  <th className="schedule-name-cell" scope="row">
+                  <th className='schedule-name-cell' scope='row'>
                     PTO
                   </th>
                   {dates.map((date) => (
                     <td key={date}>
-                      <span className="schedule-total">
-                        {people.filter((person) =>
-                          selected.has(cellKey(person.id, date)),
-                        ).length}
+                      <span className='schedule-total'>
+                        {
+                          people.filter((person) =>
+                            selected.has(cellKey(person.id, date)),
+                          ).length
+                        }
                       </span>
                     </td>
                   ))}
@@ -300,6 +329,12 @@ const GeneratorPage = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isWorking, setIsWorking] = useState(false);
   const [onCallMode, setOnCallMode] = useState(false);
+  const [onCallPopupKey, setOnCallPopupKey] = useState<string | null>(null);
+  const [weekendPopupWeek, setWeekendPopupWeek] = useState<string | null>(null);
+  const [pendingOnCallWarning, setPendingOnCallWarning] = useState<{
+    staffId: number;
+    date: string;
+  } | null>(null);
   const [selectedWork, setSelectedWork] = useState<{
     staffId: number;
     date: string;
@@ -339,7 +374,11 @@ const GeneratorPage = () => {
 
   useEffect(() => {
     let active = true;
-    Promise.all([window.staff.list(), window.settings.get(), window.segments.list()])
+    Promise.all([
+      window.staff.list(),
+      window.settings.get(),
+      window.segments.list(),
+    ])
       .then(([staffMembers, savedSettings, savedSegments]) => {
         if (!active) return;
         const activeStaff = staffMembers;
@@ -382,7 +421,9 @@ const GeneratorPage = () => {
               .map((segment) => segment.endDate),
           );
           if (!startDate) {
-            setLoadError('Choose at least one working day in Settings before creating a schedule.');
+            setLoadError(
+              'Choose at least one working day in Settings before creating a schedule.',
+            );
             return;
           }
 
@@ -397,6 +438,10 @@ const GeneratorPage = () => {
             prnDates: [],
             shifts: [],
             onCall: [],
+            onCallDepartments: {},
+            weekendOnCall: [],
+            onCallManuallyEdited: false,
+            onCallAutoApplied: false,
             staffSnapshot: staffMembers,
             settingsSnapshot: savedSettings,
             seed: Date.now() % 1000003,
@@ -408,7 +453,9 @@ const GeneratorPage = () => {
       .catch((reason: unknown) => {
         if (active) {
           setLoadError(
-            reason instanceof Error ? reason.message : 'Unable to load schedule data.',
+            reason instanceof Error
+              ? reason.message
+              : 'Unable to load schedule data.',
           );
         }
       })
@@ -483,6 +530,10 @@ const GeneratorPage = () => {
     () => people.filter((person) => person.employment === Emp.PRN),
     [people],
   );
+  const weekendOnCallStaff = useMemo(
+    () => people.filter(isWeekendOnCallEligible),
+    [people],
+  );
   const warnings = useMemo(
     () =>
       state
@@ -498,17 +549,21 @@ const GeneratorPage = () => {
     [dates, state],
   );
   const reviewCounts = state
-    ? dates.map((date) =>
-        dailyCounts(date, state.staffSnapshot, state.shifts),
-      )
+    ? dates.map((date) => dailyCounts(date, state.staffSnapshot, state.shifts))
     : [];
   const countRange = (key: 'nurses' | 'techs', edge: 'min' | 'max') => {
     const counts = reviewCounts.map((count) => count[key]);
     if (counts.length === 0) return 0;
     return edge === 'min' ? Math.min(...counts) : Math.max(...counts);
   };
-  const ptoSet = useMemo(() => new Set(state?.ptoDates ?? []), [state?.ptoDates]);
-  const prnSet = useMemo(() => new Set(state?.prnDates ?? []), [state?.prnDates]);
+  const ptoSet = useMemo(
+    () => new Set(state?.ptoDates ?? []),
+    [state?.ptoDates],
+  );
+  const prnSet = useMemo(
+    () => new Set(state?.prnDates ?? []),
+    [state?.prnDates],
+  );
   const fmlaSet = useMemo(
     () => new Set(getFmlaCellKeys(state?.fmlaEntries ?? [], dates)),
     [dates, state?.fmlaEntries],
@@ -516,12 +571,16 @@ const GeneratorPage = () => {
   const visibleFmlaStaff = useMemo(() => {
     const search = fmlaSearch.trim().toLocaleLowerCase();
     return people.filter((person) =>
-      `${person.firstName} ${person.lastName}`.toLocaleLowerCase().includes(search),
+      `${person.firstName} ${person.lastName}`
+        .toLocaleLowerCase()
+        .includes(search),
     );
   }, [fmlaSearch, people]);
-  const fmlaCount = state?.fmlaEntries.filter((entry) => entry.onFmla).length ?? 0;
+  const fmlaCount =
+    state?.fmlaEntries.filter((entry) => entry.onFmla).length ?? 0;
   const rolledOverCount =
-    state?.fmlaEntries.filter((entry) => entry.rolledOver && entry.onFmla).length ?? 0;
+    state?.fmlaEntries.filter((entry) => entry.rolledOver && entry.onFmla)
+      .length ?? 0;
   const hasInvalidFmlaRange = state
     ? state.fmlaEntries.some(
         (entry) =>
@@ -530,7 +589,11 @@ const GeneratorPage = () => {
       )
     : false;
 
-  const updateMarkedDays = (field: 'ptoDates' | 'prnDates', key: string, value: boolean) => {
+  const updateMarkedDays = (
+    field: 'ptoDates' | 'prnDates',
+    key: string,
+    value: boolean,
+  ) => {
     setState((current) => {
       if (!current) return current;
       const values = new Set(current[field]);
@@ -542,7 +605,9 @@ const GeneratorPage = () => {
 
   const setFmlaEnabled = (person: Staff, onFmla: boolean) => {
     if (!state) return;
-    const existing = state.fmlaEntries.find((entry) => entry.staffId === person.id);
+    const existing = state.fmlaEntries.find(
+      (entry) => entry.staffId === person.id,
+    );
     if (!onFmla && existing?.rolledOver) {
       toast.success(
         `${person.firstName} ${person.lastName} removed from FMLA`,
@@ -608,33 +673,39 @@ const GeneratorPage = () => {
     });
   };
 
-  const runGeneration = useCallback(
-    (source: SegmentState) => {
-      setView('generating');
-      setSelectedWork(null);
-      window.setTimeout(() => {
-        const generated: SegmentState = {
-          ...source,
-          step: 'review',
-          shifts: generateSegmentShifts(
-            source.staffSnapshot,
-            getSegmentDates(source.startDate, source.settingsSnapshot.workingDays),
-            source.ptoDates,
-            source.prnDates,
+  const runGeneration = useCallback((source: SegmentState) => {
+    setView('generating');
+    setSelectedWork(null);
+    window.setTimeout(() => {
+      const generated: SegmentState = {
+        ...source,
+        step: 'review',
+        shifts: generateSegmentShifts(
+          source.staffSnapshot,
+          getSegmentDates(
             source.startDate,
-            source.seed,
-            source.fmlaEntries,
+            source.settingsSnapshot.workingDays,
           ),
-          hasManualEdits: false,
-        };
-        setState(generated);
-        setUndoStack([]);
-        setRedoStack([]);
-        setView('review');
-      }, 120);
-    },
-    [],
-  );
+          source.ptoDates,
+          source.prnDates,
+          source.startDate,
+          source.seed,
+          source.fmlaEntries,
+        ),
+        onCall: [],
+        onCallDepartments: {},
+        weekendOnCall: [],
+        onCallManuallyEdited: false,
+        onCallAutoApplied: false,
+        hasManualEdits: false,
+      };
+      setState(generated);
+      setUndoStack([]);
+      setRedoStack([]);
+      setOnCallPopupKey(null);
+      setView('review');
+    }, 120);
+  }, []);
 
   const nextFromFmla = () => {
     if (!state || hasInvalidFmlaRange) return;
@@ -656,10 +727,7 @@ const GeneratorPage = () => {
 
   const makeSwap = (staffId: number, workDate: string, offDate: string) => {
     if (!state) return;
-    setUndoStack((history) => [
-      ...history,
-      { shifts: state.shifts, onCall: state.onCall },
-    ]);
+    setUndoStack((history) => [...history, reviewEdit(state)]);
     setRedoStack([]);
     setState((current) => {
       if (!current) return current;
@@ -684,18 +752,132 @@ const GeneratorPage = () => {
     setSelectedWork(null);
   };
 
-  const toggleOnCall = (staffId: number, date: string) => {
+  const updateOnCall = (
+    onCall: string[],
+    onCallDepartments: Record<string, Dept>,
+    weekendOnCall: NonNullable<SegmentState['weekendOnCall']>,
+    onCallManuallyEdited: boolean,
+    onCallAutoApplied = false,
+  ) => {
+    if (!state) return;
+    setUndoStack((history) => [...history, reviewEdit(state)]);
+    setRedoStack([]);
+    setState({
+      ...state,
+      onCall,
+      onCallDepartments,
+      weekendOnCall,
+      onCallManuallyEdited,
+      onCallAutoApplied,
+      hasManualEdits: true,
+    });
+  };
+
+  const setOnCallAssignment = (
+    staffId: number,
+    date: string,
+    department: Dept | null,
+  ) => {
     if (!state) return;
     const key = cellKey(staffId, date);
     const onCall = new Set(state.onCall);
-    if (onCall.has(key)) onCall.delete(key);
-    else onCall.add(key);
-    setUndoStack((history) => [
-      ...history,
-      { shifts: state.shifts, onCall: state.onCall },
-    ]);
-    setRedoStack([]);
-    setState({ ...state, onCall: [...onCall], hasManualEdits: true });
+    const onCallDepartments = { ...(state.onCallDepartments ?? {}) };
+    if (department === null) {
+      onCall.delete(key);
+      delete onCallDepartments[key];
+    } else {
+      onCall.add(key);
+      onCallDepartments[key] = department;
+    }
+    updateOnCall(
+      [...onCall],
+      onCallDepartments,
+      state.weekendOnCall ?? [],
+      true,
+    );
+    setOnCallPopupKey(null);
+  };
+
+  const autoApplyOnCall = () => {
+    if (!state) return;
+    const assignments = getAutoOnCallSchedule(
+      state.staffSnapshot,
+      dates,
+      state.shifts,
+      state.startDate,
+    );
+    updateOnCall(
+      assignments.onCall,
+      assignments.onCallDepartments,
+      assignments.weekendOnCall,
+      false,
+      true,
+    );
+    setOnCallPopupKey(null);
+    setWeekendPopupWeek(null);
+  };
+
+  const beginOnCallAssignment = (person: Staff, date: string) => {
+    if (!state) return;
+    const key = cellKey(person.id, date);
+    const isOnCall = state.onCall.includes(key);
+    const hasPacu = person.departments.includes(Dept.PACU);
+    const hasProc = person.departments.includes(Dept.PROC);
+    const needsDepartmentChoice =
+      person.role === Role.ChargeNurse || hasPacu === hasProc;
+    if (isOnCall) {
+      if (needsDepartmentChoice) setOnCallPopupKey(key);
+      else setOnCallAssignment(person.id, date, null);
+      return;
+    }
+
+    if (person.inOrientation) {
+      setPendingOnCallWarning({ staffId: person.id, date });
+      return;
+    }
+    if (person.role === Role.ChargeNurse) {
+      setOnCallPopupKey(key);
+      return;
+    }
+    if (!hasPacu && !hasProc) {
+      setPendingOnCallWarning({ staffId: person.id, date });
+      return;
+    }
+    if (needsDepartmentChoice) {
+      setOnCallPopupKey(key);
+      return;
+    }
+    setOnCallAssignment(person.id, date, hasPacu ? Dept.PACU : Dept.PROC);
+  };
+
+  const confirmUnconventionalOnCall = () => {
+    if (!state || !pendingOnCallWarning) return;
+    const { staffId, date } = pendingOnCallWarning;
+    const person = state.staffSnapshot.find((member) => member.id === staffId);
+    setPendingOnCallWarning(null);
+    if (!person) return;
+    const hasPacu = person.departments.includes(Dept.PACU);
+    const hasProc = person.departments.includes(Dept.PROC);
+    if (person.role === Role.ChargeNurse || hasPacu === hasProc) {
+      setOnCallPopupKey(cellKey(staffId, date));
+    } else {
+      setOnCallAssignment(staffId, date, hasPacu ? Dept.PACU : Dept.PROC);
+    }
+  };
+
+  const updateWeekendOnCall = (weekStart: string, value: string) => {
+    if (!state) return;
+    const staffId = value === '' ? null : Number(value);
+    const weekendOnCall = (state.weekendOnCall ?? []).filter(
+      (entry) => entry.weekStart !== weekStart,
+    );
+    weekendOnCall.push({ weekStart, staffId });
+    updateOnCall(
+      state.onCall,
+      state.onCallDepartments ?? {},
+      weekendOnCall,
+      true,
+    );
   };
 
   const returnToInputs = () => {
@@ -706,12 +888,17 @@ const GeneratorPage = () => {
       step: previousStep,
       shifts: [],
       onCall: [],
+      onCallDepartments: {},
+      weekendOnCall: [],
+      onCallManuallyEdited: false,
+      onCallAutoApplied: false,
       hasManualEdits: false,
     };
     setState(nextState);
     setUndoStack([]);
     setRedoStack([]);
     setSelectedWork(null);
+    setOnCallPopupKey(null);
     setShowBackReview(false);
     setView(previousStep);
   };
@@ -719,15 +906,16 @@ const GeneratorPage = () => {
   const undo = useCallback(() => {
     if (!state || undoStack.length === 0) return;
     const previous = undoStack[undoStack.length - 1];
-    setRedoStack((stack) => [
-      ...stack,
-      { shifts: state.shifts, onCall: state.onCall },
-    ]);
+    setRedoStack((stack) => [...stack, reviewEdit(state)]);
     setUndoStack((stack) => stack.slice(0, -1));
     setState({
       ...state,
       shifts: previous.shifts,
       onCall: previous.onCall,
+      onCallDepartments: previous.onCallDepartments ?? {},
+      weekendOnCall: previous.weekendOnCall ?? [],
+      onCallManuallyEdited: previous.onCallManuallyEdited ?? false,
+      onCallAutoApplied: previous.onCallAutoApplied ?? false,
       hasManualEdits: true,
     });
   }, [state, undoStack]);
@@ -735,15 +923,16 @@ const GeneratorPage = () => {
   const redo = useCallback(() => {
     if (!state || redoStack.length === 0) return;
     const next = redoStack[redoStack.length - 1];
-    setUndoStack((stack) => [
-      ...stack,
-      { shifts: state.shifts, onCall: state.onCall },
-    ]);
+    setUndoStack((stack) => [...stack, reviewEdit(state)]);
     setRedoStack((stack) => stack.slice(0, -1));
     setState({
       ...state,
       shifts: next.shifts,
       onCall: next.onCall,
+      onCallDepartments: next.onCallDepartments ?? {},
+      weekendOnCall: next.weekendOnCall ?? [],
+      onCallManuallyEdited: next.onCallManuallyEdited ?? false,
+      onCallAutoApplied: next.onCallAutoApplied ?? false,
       hasManualEdits: true,
     });
   }, [redoStack, state]);
@@ -751,12 +940,16 @@ const GeneratorPage = () => {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (view !== 'review') return;
-      if (event.key === 'Escape') setSelectedWork(null);
+      if (event.key === 'Escape') {
+        setSelectedWork(null);
+        setOnCallPopupKey(null);
+      }
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'z') {
         if (
           event.target instanceof HTMLInputElement ||
           event.target instanceof HTMLTextAreaElement ||
-          (event.target instanceof HTMLElement && event.target.isContentEditable)
+          (event.target instanceof HTMLElement &&
+            event.target.isContentEditable)
         ) {
           return;
         }
@@ -855,7 +1048,10 @@ const GeneratorPage = () => {
       setSavingError(null);
       setError(null);
       setShowDiscard(false);
-      toast.success('Schedule saved', 'Draft saved. You can pick up where you left off.');
+      toast.success(
+        'Schedule saved',
+        'Draft saved. You can pick up where you left off.',
+      );
       if (blocker.state === 'blocked') blocker.proceed();
       else navigate('/schedules');
     } catch (reason) {
@@ -872,21 +1068,21 @@ const GeneratorPage = () => {
 
   if (loadError) {
     return (
-      <PageContent title="Create Schedule">
-        <p role="alert">Unable to load schedule data: {loadError}</p>
+      <PageContent title='Create Schedule'>
+        <p role='alert'>Unable to load schedule data: {loadError}</p>
       </PageContent>
     );
   }
   if (isLoading || !settings || !staff) {
     return (
-      <PageContent title="Create Schedule">
-        <p role="status">Loading schedule data…</p>
+      <PageContent title='Create Schedule'>
+        <p role='status'>Loading schedule data…</p>
       </PageContent>
     );
   }
   if (staff.length === 0) {
     return (
-      <PageContent title="Create Schedule">
+      <PageContent title='Create Schedule'>
         <TeamWelcome onAddStaff={() => navigate('/staff/new')} />
       </PageContent>
     );
@@ -906,10 +1102,13 @@ const GeneratorPage = () => {
   return (
     <>
       <PageContent title={title}>
-        <div className="flex min-w-0 flex-col gap-4">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className='flex min-w-0 flex-col gap-4'>
+          <div className='flex flex-wrap items-start justify-between gap-4'>
             {editScheduleId === null && (
-              <div className="schedule-steps" aria-label="Schedule creation steps">
+              <div
+                className='schedule-steps'
+                aria-label='Schedule creation steps'
+              >
                 {[
                   ['FMLA', 'bi-heart'],
                   ['PTO', 'bi-pencil'],
@@ -928,15 +1127,17 @@ const GeneratorPage = () => {
                   const isCurrent = currentIndex === index;
                   const isComplete = currentIndex > index;
                   return (
-                    <div className="schedule-step-wrap" key={label}>
+                    <div className='schedule-step-wrap' key={label}>
                       {index > 0 && (
                         <span
                           className={`schedule-step-line ${isComplete || isCurrent ? 'complete' : ''}`}
-                          aria-hidden="true"
+                          aria-hidden='true'
                         />
                       )}
-                      <div className={`schedule-step ${isCurrent ? 'current' : ''} ${isComplete ? 'complete' : ''}`}>
-                        <span className="schedule-step-icon">
+                      <div
+                        className={`schedule-step ${isCurrent ? 'current' : ''} ${isComplete ? 'complete' : ''}`}
+                      >
+                        <span className='schedule-step-icon'>
                           <i className={`bi ${icon}`} />
                         </span>
                         <span>{label}</span>
@@ -947,18 +1148,19 @@ const GeneratorPage = () => {
               </div>
             )}
             {displayedStart && displayedEnd && (
-              <span className="schedule-period">
-                Six-week schedule · {formatDateRange(displayedStart, displayedEnd)}
+              <span className='schedule-period'>
+                Six-week schedule ·{' '}
+                {formatDateRange(displayedStart, displayedEnd)}
               </span>
             )}
           </div>
 
           {view === 'fmla' && state && (
-            <section className="fmla-step flex min-w-0 flex-col gap-3">
-              <h2 className="text-sm! sm:text-base!">FMLA</h2>
-              <div className="fmla-rollover-banner" role="status">
-                <span className="fmla-heart" aria-hidden="true">
-                  <i className="bi bi-heart-fill" />
+            <section className='fmla-step flex min-w-0 flex-col gap-3'>
+              <h2 className='text-sm! sm:text-base!'>FMLA</h2>
+              <div className='fmla-rollover-banner' role='status'>
+                <span className='fmla-heart' aria-hidden='true'>
+                  <i className='bi bi-heart-fill' />
                 </span>
                 <span>
                   {rolledOverCount === 0
@@ -966,26 +1168,26 @@ const GeneratorPage = () => {
                     : `${rolledOverCount} staff ${rolledOverCount === 1 ? 'member' : 'members'} rolled over from the last schedule`}
                 </span>
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className='flex flex-wrap items-center justify-between gap-3'>
                 <input
-                  type="search"
-                  aria-label="Search staff"
-                  placeholder="Search staff"
+                  type='search'
+                  aria-label='Search staff'
+                  placeholder='Search staff'
                   value={fmlaSearch}
                   onChange={(event) => setFmlaSearch(event.currentTarget.value)}
-                  className="fmla-search"
+                  className='fmla-search'
                 />
-                <span className="fmla-count">{fmlaCount} on FMLA</span>
+                <span className='fmla-count'>{fmlaCount} on FMLA</span>
               </div>
-              <div className="fmla-table-scroll">
-                <table className="fmla-table">
+              <div className='fmla-table-scroll'>
+                <table className='fmla-table'>
                   <thead>
                     <tr>
-                      <th scope="col">Staff</th>
-                      <th scope="col">On FMLA</th>
-                      <th scope="col">Start date (optional)</th>
-                      <th scope="col">End date (optional)</th>
-                      <th scope="col">Applies to</th>
+                      <th scope='col'>Staff</th>
+                      <th scope='col'>On FMLA</th>
+                      <th scope='col'>Start date (optional)</th>
+                      <th scope='col'>End date (optional)</th>
+                      <th scope='col'>Applies to</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1015,8 +1217,10 @@ const GeneratorPage = () => {
                               : ''
                           }
                         >
-                          <th scope="row">
-                            <span>{person.lastName}, {person.firstName}</span>
+                          <th scope='row'>
+                            <span>
+                              {person.lastName}, {person.firstName}
+                            </span>
                             {entry?.rolledOver && (
                               <span
                                 className={`fmla-rollover-chip ${isOnFmla ? '' : 'was-rolled-over'}`}
@@ -1026,10 +1230,10 @@ const GeneratorPage = () => {
                             )}
                           </th>
                           <td>
-                            <label className="toggle">
+                            <label className='toggle'>
                               <input
-                                type="checkbox"
-                                role="switch"
+                                type='checkbox'
+                                role='switch'
                                 aria-label={`On FMLA for ${person.firstName} ${person.lastName}`}
                                 checked={isOnFmla}
                                 onChange={(event) =>
@@ -1039,23 +1243,29 @@ const GeneratorPage = () => {
                                   )
                                 }
                               />
-                              <span className="toggle-track" aria-hidden="true" />
+                              <span
+                                className='toggle-track'
+                                aria-hidden='true'
+                              />
                             </label>
                           </td>
                           <td>
                             {isOnFmla && entry?.rolledOver ? (
-                              <span className="fmla-locked-date">
+                              <span className='fmla-locked-date'>
                                 <input
-                                  type="text"
+                                  type='text'
                                   value={`Since ${formatDate(entry.startDate ?? state.startDate)}`}
                                   aria-label={`Start date for ${person.firstName} ${person.lastName}`}
                                   disabled
                                 />
-                                <i className="bi bi-lock-fill" aria-hidden="true" />
+                                <i
+                                  className='bi bi-lock-fill'
+                                  aria-hidden='true'
+                                />
                               </span>
                             ) : isOnFmla ? (
                               <input
-                                type="date"
+                                type='date'
                                 aria-label={`Start date for ${person.firstName} ${person.lastName}`}
                                 value={entry?.startDate ?? ''}
                                 onChange={(event) =>
@@ -1072,7 +1282,7 @@ const GeneratorPage = () => {
                             {isOnFmla && (
                               <>
                                 <input
-                                  type="date"
+                                  type='date'
                                   aria-label={`End date for ${person.firstName} ${person.lastName}`}
                                   aria-invalid={invalidRange}
                                   aria-describedby={
@@ -1092,8 +1302,8 @@ const GeneratorPage = () => {
                                 {invalidRange && (
                                   <span
                                     id={`fmla-error-${person.id}`}
-                                    className="fmla-date-error"
-                                    role="alert"
+                                    className='fmla-date-error'
+                                    role='alert'
                                   >
                                     End date must be after start date
                                   </span>
@@ -1101,13 +1311,13 @@ const GeneratorPage = () => {
                               </>
                             )}
                           </td>
-                          <td className="fmla-applies">{appliesTo}</td>
+                          <td className='fmla-applies'>{appliesTo}</td>
                         </tr>
                       );
                     })}
                     {visibleFmlaStaff.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="fmla-empty">
+                        <td colSpan={5} className='fmla-empty'>
                           No staff members found.
                         </td>
                       </tr>
@@ -1115,12 +1325,16 @@ const GeneratorPage = () => {
                   </tbody>
                 </table>
               </div>
-              {savingError && <p role="alert" className="text-sm! text-cherry-600">{savingError}</p>}
-              <div className="flex flex-wrap justify-between gap-2">
+              {savingError && (
+                <p role='alert' className='text-sm! text-cherry-600'>
+                  {savingError}
+                </p>
+              )}
+              <div className='flex flex-wrap justify-between gap-2'>
                 <IconButton
-                  ariaLabel="Back"
-                  icon="bi-chevron-left"
-                  variant="outlined"
+                  ariaLabel='Back'
+                  icon='bi-chevron-left'
+                  variant='outlined'
                   onClick={() => {
                     if (hasDraftProgress) setShowDiscard(true);
                     else void discardDraft();
@@ -1151,22 +1365,32 @@ const GeneratorPage = () => {
                 startDate={state.startDate}
                 selected={view === 'pto' ? ptoSet : prnSet}
                 disabledKeys={
-                  view === 'prn'
-                    ? new Set([...ptoSet, ...fmlaSet])
-                    : fmlaSet
+                  view === 'prn' ? new Set([...ptoSet, ...fmlaSet]) : fmlaSet
                 }
                 kind={view === 'pto' ? 'pto' : 'prn'}
                 onToggle={(key, value) =>
-                  updateMarkedDays(view === 'pto' ? 'ptoDates' : 'prnDates', key, value)
+                  updateMarkedDays(
+                    view === 'pto' ? 'ptoDates' : 'prnDates',
+                    key,
+                    value,
+                  )
                 }
               />
-              {error && <p role="alert" className="text-sm! text-cherry-600">{error}</p>}
-              {savingError && <p role="alert" className="text-sm! text-cherry-600">{savingError}</p>}
-              <div className="flex flex-wrap justify-between gap-2">
+              {error && (
+                <p role='alert' className='text-sm! text-cherry-600'>
+                  {error}
+                </p>
+              )}
+              {savingError && (
+                <p role='alert' className='text-sm! text-cherry-600'>
+                  {savingError}
+                </p>
+              )}
+              <div className='flex flex-wrap justify-between gap-2'>
                 <IconButton
-                  ariaLabel="Back"
-                  icon="bi-chevron-left"
-                  variant="outlined"
+                  ariaLabel='Back'
+                  icon='bi-chevron-left'
+                  variant='outlined'
                   onClick={() => {
                     setError(null);
                     if (view === 'prn') {
@@ -1190,10 +1414,10 @@ const GeneratorPage = () => {
                   <Button onClick={nextFromPto}>Next</Button>
                 ) : (
                   <IconButton
-                    ariaLabel="Generate"
-                    title="Generate schedule"
-                    icon="bi-arrow-repeat"
-                    variant="filled"
+                    ariaLabel='Generate'
+                    title='Generate schedule'
+                    icon='bi-arrow-repeat'
+                    variant='filled'
                     onClick={() =>
                       view === 'pto' ? nextFromPto() : runGeneration(state)
                     }
@@ -1204,90 +1428,174 @@ const GeneratorPage = () => {
           )}
 
           {view === 'generating' && (
-            <div className="flex min-h-56 flex-col items-center justify-center gap-3" role="status">
+            <div
+              className='flex min-h-56 flex-col items-center justify-center gap-3'
+              role='status'
+            >
               <span
-                className="schedule-spinner animate-spin motion-reduce:animate-none"
-                aria-hidden="true"
+                className='schedule-spinner animate-spin motion-reduce:animate-none'
+                aria-hidden='true'
               />
               <h2>Building your schedule…</h2>
-              <p className="text-sm!">Balancing coverage across six weeks.</p>
+              <p className='text-sm!'>Balancing coverage across six weeks.</p>
             </div>
           )}
 
           {view === 'review' && state && (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div className="flex flex-wrap items-center gap-2">
+              <div className='flex flex-wrap items-center justify-between gap-3'>
+                <div className='flex flex-wrap items-center gap-2'>
                   {selectedWork && !onCallMode && (
-                    <span className="text-sm">
+                    <span className='text-sm'>
                       Choose an off day in the same week to swap. Esc cancels.
                     </span>
                   )}
                 </div>
-                <div className="flex flex-wrap gap-2">
-                  <IconButton
-                    ariaLabel="On-call mode"
-                    title="Toggle on-call mode"
-                    icon="bi-telephone"
-                    variant={onCallMode ? 'filled' : 'outlined'}
-                    onClick={() => {
-                      setOnCallMode((value) => !value);
-                      setSelectedWork(null);
-                    }}
-                  />
-                  <IconButton
-                    ariaLabel="Undo"
-                    title="Undo last change"
-                    icon="bi-arrow-counterclockwise"
-                    variant="outlined"
-                    disabled={undoStack.length === 0}
-                    onClick={undo}
-                  />
-                  <IconButton
-                    ariaLabel="Redo"
-                    title="Redo last undone change"
-                    icon="bi-arrow-clockwise"
-                    variant="outlined"
-                    disabled={redoStack.length === 0}
-                    onClick={redo}
-                  />
-                  {editScheduleId === null && (
-                    <IconButton
-                      ariaLabel="Regenerate"
-                      title="Regenerate schedule"
-                      icon="bi-arrow-repeat"
-                      variant="outlined"
-                      onClick={() => {
-                        if (state.hasManualEdits) setShowRegenerate(true);
-                        else runGeneration(state);
-                      }}
-                    />
+                <div className='flex flex-wrap gap-2'>
+                  {!onCallMode && (
+                    <>
+                      <IconButton
+                        ariaLabel='Turn on on-call mode'
+                        title='Turn on on-call mode'
+                        icon='bi-telephone'
+                        variant='outlined'
+                        onClick={() => {
+                          setOnCallMode(true);
+                          setSelectedWork(null);
+                        }}
+                      />
+                      <IconButton
+                        ariaLabel='Undo'
+                        title='Undo last change'
+                        icon='bi-arrow-counterclockwise'
+                        variant='outlined'
+                        disabled={undoStack.length === 0}
+                        onClick={undo}
+                      />
+                      <IconButton
+                        ariaLabel='Redo'
+                        title='Redo last undone change'
+                        icon='bi-arrow-clockwise'
+                        variant='outlined'
+                        disabled={redoStack.length === 0}
+                        onClick={redo}
+                      />
+                      {editScheduleId === null && (
+                        <IconButton
+                          ariaLabel='Regenerate'
+                          title='Regenerate schedule'
+                          icon='bi-arrow-repeat'
+                          variant='outlined'
+                          onClick={() => {
+                            if (state.hasManualEdits) setShowRegenerate(true);
+                            else runGeneration(state);
+                          }}
+                        />
+                      )}
+                    </>
                   )}
                 </div>
               </div>
 
+              {onCallMode && (
+                <section className='oncall-banner' aria-label='On-call mode'>
+                  <div className='oncall-banner-title'>
+                    <span className='oncall-banner-icon' aria-hidden='true'>
+                      <i className='bi bi-telephone' />
+                    </span>
+                    <strong>On-call mode</strong>
+                  </div>
+                  <div className='oncall-banner-controls'>
+                    <div
+                      className='oncall-legend'
+                      aria-label='Department legend'
+                    >
+                      <span>
+                        <i className='oncall-legend-dot oncall-proc' />
+                        PROC
+                      </span>
+                      <span>
+                        <i className='oncall-legend-dot oncall-pacu' />
+                        PACU
+                      </span>
+                    </div>
+                    {state.onCallManuallyEdited && (
+                      <button
+                        type='button'
+                        className='oncall-reset'
+                        onClick={autoApplyOnCall}
+                      >
+                        Reset to auto
+                      </button>
+                    )}
+                    {!state.onCallAutoApplied && (
+                      <Button
+                        variant='outlined'
+                        className='oncall-auto-apply'
+                        onClick={autoApplyOnCall}
+                      >
+                        Auto apply
+                      </Button>
+                    )}
+                    <label className='oncall-mode-control'>
+                      <span>On-call mode</span>
+                      <button
+                        type='button'
+                        role='switch'
+                        aria-label='Turn off on-call mode'
+                        aria-checked={onCallMode}
+                        className='oncall-mode-switch'
+                        onClick={() => {
+                          setOnCallMode(false);
+                          setSelectedWork(null);
+                          setOnCallPopupKey(null);
+                          setWeekendPopupWeek(null);
+                        }}
+                      >
+                        <span />
+                      </button>
+                    </label>
+                  </div>
+                </section>
+              )}
+
               <div
-                className="schedule-grid-scroll review-grid-scroll"
+                className='schedule-grid-scroll review-grid-scroll'
                 data-scrolled={reviewGridScrolled}
                 onScroll={(event) =>
                   setReviewGridScrolled(event.currentTarget.scrollLeft > 0)
                 }
               >
-                <table className="schedule-grid review-grid">
+                <table className='schedule-grid review-grid'>
                   <thead>
                     <tr>
-                      <th className="schedule-name-cell" rowSpan={2} scope="col">
+                      <th
+                        className='schedule-name-cell'
+                        rowSpan={2}
+                        scope='col'
+                      >
                         Staff
                       </th>
                       {weekGroups(dates, state.startDate).map((group) => (
-                        <th key={group.week} colSpan={group.dates.length} scope="colgroup" className="schedule-week-cell">
+                        <th
+                          key={group.week}
+                          colSpan={group.dates.length}
+                          scope='colgroup'
+                          className='schedule-week-cell'
+                        >
                           Week {group.week + 1}
                         </th>
                       ))}
                     </tr>
                     <tr>
                       {dates.map((date) => (
-                        <th className="schedule-day-cell" id={`day-${date}`} key={date} scope="col" title={formatDate(date)}>
+                        <th
+                          className='schedule-day-cell'
+                          id={`day-${date}`}
+                          key={date}
+                          scope='col'
+                          title={formatDate(date)}
+                        >
                           {dayLabel(date).slice(0, 1)}
                         </th>
                       ))}
@@ -1298,21 +1606,24 @@ const GeneratorPage = () => {
                       <tr key={person.id}>
                         <th
                           className={`schedule-name-cell ${person.employment === Emp.PRN ? 'schedule-prn-row' : ''}`}
-                          scope="row"
+                          scope='row'
                         >
-                          <span className="schedule-staff-label">
+                          <span className='schedule-staff-label'>
                             {person.lastName}, {person.firstName.slice(0, 1)}.
                           </span>
                           {person.role === Role.ChargeNurse && (
-                            <span className="schedule-role-label">CSL</span>
+                            <span className='schedule-role-label'>CSL</span>
                           )}
                           {person.employment === Emp.PRN && (
                             <span
-                              className="schedule-prn-lock"
-                              title="PRN"
-                              aria-label="PRN"
+                              className='schedule-prn-lock'
+                              title='PRN'
+                              aria-label='PRN'
                             >
-                              <i className="bi bi-lock-fill" aria-hidden="true" />
+                              <i
+                                className='bi bi-lock-fill'
+                                aria-hidden='true'
+                              />
                             </span>
                           )}
                         </th>
@@ -1328,6 +1639,22 @@ const GeneratorPage = () => {
                               item.kind === 'work',
                           );
                           const isOnCall = state.onCall.includes(key);
+                          const departmentChoices = [
+                            Dept.PROC,
+                            Dept.PACU,
+                          ].filter((department) =>
+                            person.departments.includes(department),
+                          );
+                          const canChooseEitherDepartment =
+                            departmentChoices.length === 0;
+                          const shouldShowDepartmentPopup =
+                            person.role === Role.ChargeNurse ||
+                            departmentChoices.length !== 1;
+                          const callDepartment =
+                            state.onCallDepartments?.[key] ??
+                            (person.departments.includes(Dept.PACU)
+                              ? Dept.PACU
+                              : Dept.PROC);
                           const showPto = isPto && !onCallMode;
                           const isSelected =
                             selectedWork?.staffId === person.id &&
@@ -1343,41 +1670,55 @@ const GeneratorPage = () => {
                             !shift &&
                             !isOnCall &&
                             !onCallMode;
-                          const canSelect = shift !== undefined && !onCallMode;
+                          const canSelect =
+                            shift !== undefined && !isOnCall && !onCallMode;
                           const isPrn = person.employment === Emp.PRN;
-                          const enabled = isPrn
-                            ? false
-                            : onCallMode
-                            ? !person.inOrientation && !isLeave && shift !== undefined
-                            : selectedWork
-                              ? isSwapTarget || canSelect
-                              : canSelect;
+                          const enabled = onCallMode
+                            ? !isLeave && shift !== undefined
+                            : isPrn
+                              ? false
+                              : selectedWork
+                                ? isSwapTarget || canSelect
+                                : canSelect;
                           const label = isFmla
                             ? 'FMLA'
                             : isPto
-                            ? 'PTO'
-                            : isOnCall
-                              ? 'On-call'
-                              : shift
-                                ? shift.countsTowardTargets
-                                  ? 'Working'
-                                  : 'Working, does not count toward target'
-                                : 'Off';
+                              ? 'PTO'
+                              : isOnCall
+                                ? `On-call ${callDepartment === Dept.PACU ? 'PACU' : 'PROC'}`
+                                : shift
+                                  ? shift.countsTowardTargets
+                                    ? 'Working'
+                                    : 'Working, does not count toward target'
+                                  : 'Off';
                           return (
                             <td key={date}>
                               <button
-                                type="button"
+                                type='button'
                                 aria-label={`${person.firstName} ${person.lastName}, ${formatDate(date)}: ${label}`}
                                 aria-pressed={isSelected || isOnCall}
+                                aria-haspopup={
+                                  shouldShowDepartmentPopup
+                                    ? 'dialog'
+                                    : undefined
+                                }
+                                aria-expanded={
+                                  shouldShowDepartmentPopup &&
+                                  onCallPopupKey === key
+                                }
                                 disabled={!enabled}
                                 data-grid-row={rowIndex}
                                 data-grid-column={columnIndex}
-                                className={`schedule-cell ${showPto ? 'schedule-cell-pto' : ''} ${isFmla ? 'schedule-cell-fmla' : ''} ${shift ? 'schedule-cell-work' : ''} ${isOnCall ? 'schedule-cell-oncall' : ''} ${isSelected ? 'schedule-cell-selected' : ''} ${isSwapTarget ? 'schedule-cell-target' : ''} ${isPrn ? 'schedule-cell-disabled' : ''}`}
+                                className={`schedule-cell ${showPto ? 'schedule-cell-pto' : ''} ${isFmla ? 'schedule-cell-fmla' : ''} ${shift ? 'schedule-cell-work' : ''} ${isOnCall ? `schedule-cell-oncall ${callDepartment === Dept.PACU ? 'schedule-cell-oncall-pacu' : 'schedule-cell-oncall-proc'}` : ''} ${isSelected ? 'schedule-cell-selected' : ''} ${isSwapTarget ? 'schedule-cell-target' : ''} ${!onCallMode && isPrn ? 'schedule-cell-disabled' : ''}`}
                                 onClick={() => {
                                   if (onCallMode && !isLeave && shift) {
-                                    toggleOnCall(person.id, date);
+                                    beginOnCallAssignment(person, date);
                                   } else if (isSwapTarget && selectedWork) {
-                                    makeSwap(selectedWork.staffId, selectedWork.date, date);
+                                    makeSwap(
+                                      selectedWork.staffId,
+                                      selectedWork.date,
+                                      date,
+                                    );
                                   } else if (shift) {
                                     setSelectedWork(
                                       isSelected
@@ -1390,8 +1731,99 @@ const GeneratorPage = () => {
                                   moveGridFocus(event, rowIndex, columnIndex)
                                 }
                               >
-                                {isFmla ? 'F' : showPto ? 'P' : isOnCall ? 'OC' : shift ? 'W' : '–'}
+                                {isFmla
+                                  ? 'F'
+                                  : showPto
+                                    ? 'P'
+                                    : isOnCall
+                                      ? 'OC'
+                                      : shift
+                                        ? 'W'
+                                        : '–'}
                               </button>
+                              {onCallMode &&
+                                shouldShowDepartmentPopup &&
+                                onCallPopupKey === key && (
+                                  <div
+                                    className='oncall-department-popup'
+                                    role='dialog'
+                                    aria-label={`On-call department for ${person.firstName} ${person.lastName} on ${formatDate(date)}`}
+                                  >
+                                    <div className='oncall-department-heading'>
+                                      <strong>
+                                        {person.firstName} {person.lastName}
+                                      </strong>
+                                      <span>{formatDate(date)}</span>
+                                    </div>
+                                    <div className='oncall-department-options'>
+                                      {(canChooseEitherDepartment
+                                        ? [Dept.PROC, Dept.PACU]
+                                        : departmentChoices
+                                      ).map((department) => (
+                                        <button
+                                          type='button'
+                                          key={department}
+                                          aria-pressed={
+                                            isOnCall &&
+                                            callDepartment === department
+                                          }
+                                          className={`oncall-department-option ${department === Dept.PROC ? 'oncall-proc-option' : 'oncall-pacu-option'}`}
+                                          onClick={() =>
+                                            setOnCallAssignment(
+                                              person.id,
+                                              date,
+                                              department,
+                                            )
+                                          }
+                                        >
+                                          <i
+                                            className={`oncall-legend-dot ${department === Dept.PROC ? 'oncall-proc' : 'oncall-pacu'}`}
+                                            aria-hidden='true'
+                                          />
+                                          {department === Dept.PACU
+                                            ? 'PACU'
+                                            : 'PROC'}
+                                        </button>
+                                      ))}
+                                    </div>
+                                    <p>
+                                      On-call days{' '}
+                                      {state.onCall.filter((callKey) =>
+                                        callKey.startsWith(`${person.id}:`),
+                                      ).length +
+                                        (state.weekendOnCall ?? []).filter(
+                                          (assignment) =>
+                                            assignment.staffId === person.id,
+                                        ).length *
+                                          2}{' '}
+                                      of {onCallTarget(person.employment)}
+                                    </p>
+                                    <div className='oncall-popup-actions'>
+                                      {isOnCall && (
+                                        <button
+                                          type='button'
+                                          className='oncall-remove'
+                                          onClick={() =>
+                                            setOnCallAssignment(
+                                              person.id,
+                                              date,
+                                              null,
+                                            )
+                                          }
+                                        >
+                                          Remove OC
+                                        </button>
+                                      )}
+                                      <button
+                                        type='button'
+                                        className='oncall-done'
+                                        onClick={() => setOnCallPopupKey(null)}
+                                      >
+                                        Done
+                                      </button>
+                                    </div>
+                                  </div>
+                                )}
                             </td>
                           );
                         })}
@@ -1400,20 +1832,32 @@ const GeneratorPage = () => {
                   </tbody>
                   <tfoot>
                     {[
-                      ['Nurses', Role.Nurse, state.settingsSnapshot.targetNurses],
+                      [
+                        'Nurses',
+                        Role.Nurse,
+                        state.settingsSnapshot.targetNurses,
+                      ],
                       ['Techs', Role.Tech, state.settingsSnapshot.targetTechs],
                     ].map(([label, role, target]) => (
                       <tr key={label}>
-                        <th className="schedule-name-cell" scope="row">
+                        <th className='schedule-name-cell' scope='row'>
                           {label} / {target}
                         </th>
                         {dates.map((date) => {
-                          const counts = dailyCounts(date, state.staffSnapshot, state.shifts);
-                          const count = role === Role.Nurse ? counts.nurses : counts.techs;
+                          const counts = dailyCounts(
+                            date,
+                            state.staffSnapshot,
+                            state.shifts,
+                          );
+                          const count =
+                            role === Role.Nurse ? counts.nurses : counts.techs;
                           const isLow = count < Number(target);
                           return (
                             <td key={date}>
-                              <span className={`schedule-total ${isLow ? 'schedule-total-low' : ''}`} aria-label={`${count} of ${target}`}>
+                              <span
+                                className={`schedule-total ${isLow ? 'schedule-total-low' : ''}`}
+                                aria-label={`${count} of ${target}`}
+                              >
                                 {count}
                               </span>
                             </td>
@@ -1421,22 +1865,118 @@ const GeneratorPage = () => {
                         })}
                       </tr>
                     ))}
+                    {onCallMode && (
+                      <tr className='schedule-weekend-row'>
+                        <th className='schedule-name-cell' scope='row'>
+                          Weekend OC
+                        </th>
+                        {weekGroups(dates, state.startDate).map((group) => {
+                          const assignment = (state.weekendOnCall ?? []).find(
+                            (entry) => entry.weekStart === group.dates[0],
+                          );
+                          const assignedStaff = weekendOnCallStaff.find(
+                            (person) => person.id === assignment?.staffId,
+                          );
+                          return (
+                            <td key={group.week} colSpan={group.dates.length}>
+                              <div className='schedule-weekend-picker'>
+                                <button
+                                  type='button'
+                                  aria-label={`Weekend OC Week ${group.week + 1}`}
+                                  aria-expanded={
+                                    weekendPopupWeek === group.dates[0]
+                                  }
+                                  aria-haspopup='listbox'
+                                  className='schedule-weekend-select'
+                                  disabled={
+                                    !onCallMode ||
+                                    weekendOnCallStaff.length === 0
+                                  }
+                                  onClick={() =>
+                                    setWeekendPopupWeek((current) =>
+                                      current === group.dates[0]
+                                        ? null
+                                        : group.dates[0],
+                                    )
+                                  }
+                                >
+                                  {assignedStaff
+                                    ? `${assignedStaff.lastName} ${assignedStaff.firstName.slice(0, 1)}.`
+                                    : 'Assign nurse'}
+                                  <i
+                                    className='bi bi-chevron-down'
+                                    aria-hidden='true'
+                                  />
+                                </button>
+                                {weekendPopupWeek === group.dates[0] && (
+                                  <div
+                                    className='schedule-weekend-options'
+                                    role='listbox'
+                                    aria-label={`Eligible staff for Weekend OC Week ${group.week + 1}`}
+                                  >
+                                    <button
+                                      type='button'
+                                      role='option'
+                                      aria-selected={
+                                        assignment?.staffId === null
+                                      }
+                                      onClick={() => {
+                                        updateWeekendOnCall(group.dates[0], '');
+                                        setWeekendPopupWeek(null);
+                                      }}
+                                    >
+                                      Assign nurse
+                                    </button>
+                                    {weekendOnCallStaff.map((person) => (
+                                      <button
+                                        type='button'
+                                        role='option'
+                                        aria-selected={
+                                          assignment?.staffId === person.id
+                                        }
+                                        key={person.id}
+                                        onClick={() => {
+                                          updateWeekendOnCall(
+                                            group.dates[0],
+                                            String(person.id),
+                                          );
+                                          setWeekendPopupWeek(null);
+                                        }}
+                                      >
+                                        {person.lastName}{' '}
+                                        {person.firstName.slice(0, 1)}.
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    )}
                   </tfoot>
                 </table>
               </div>
 
-              <div className="flex flex-col gap-2">
-                <p className="text-sm!">
-                  W work · – off · P PTO · F FMLA · OC on-call. Counts exclude orientation staff. Select a workday, then a highlighted off day to swap.
+              <div className='flex flex-col gap-2'>
+                <p className='text-sm!'>
+                  W work · – off · P PTO · F FMLA · OC on-call. Counts exclude
+                  orientation staff. Select a workday, then a highlighted off
+                  day to swap.
                 </p>
               </div>
 
-              {savingError && <p role="alert" className="text-sm! text-cherry-600">{savingError}</p>}
-              <div className="flex flex-wrap justify-between gap-2">
+              {savingError && (
+                <p role='alert' className='text-sm! text-cherry-600'>
+                  {savingError}
+                </p>
+              )}
+              <div className='flex flex-wrap justify-between gap-2'>
                 <IconButton
-                  ariaLabel="Back"
-                  icon="bi-chevron-left"
-                  variant="outlined"
+                  ariaLabel='Back'
+                  icon='bi-chevron-left'
+                  variant='outlined'
                   onClick={() => {
                     if (editScheduleId !== null) {
                       navigate(`/schedules/${editScheduleId}`);
@@ -1445,10 +1985,10 @@ const GeneratorPage = () => {
                   }}
                 />
                 <IconButton
-                  ariaLabel="Confirm"
-                  title="Confirm schedule"
-                  icon="bi-check-lg"
-                  variant="filled"
+                  ariaLabel='Confirm'
+                  title='Confirm schedule'
+                  icon='bi-check-lg'
+                  variant='filled'
                   onClick={() => {
                     setAcknowledged(false);
                     setShowConfirm(true);
@@ -1461,8 +2001,34 @@ const GeneratorPage = () => {
       </PageContent>
 
       <Dialog
+        open={pendingOnCallWarning !== null}
+        title='Confirm on-call assignment'
+        onCancel={() => setPendingOnCallWarning(null)}
+        onConfirm={confirmUnconventionalOnCall}
+        cancelLabel='Cancel'
+        confirmLabel='Confirm'
+      >
+        {pendingOnCallWarning &&
+          (state?.staffSnapshot.find(
+            (person) => person.id === pendingOnCallWarning.staffId,
+          )?.inOrientation ? (
+            <p>
+              This user is in oritentation. Are you sure you want to put them on
+              call?
+            </p>
+          ) : (
+            <p>
+              This user is not trained in PACU or PROC. Are you sure you want to
+              put them on call?
+            </p>
+          ))}
+      </Dialog>
+
+      <Dialog
         open={showConfirm}
-        title={editScheduleId !== null ? 'Save schedule changes' : 'Confirm schedule'}
+        title={
+          editScheduleId !== null ? 'Save schedule changes' : 'Confirm schedule'
+        }
         onCancel={() => setShowConfirm(false)}
         onConfirm={() => void confirmSchedule()}
         confirmLabel={
@@ -1475,52 +2041,57 @@ const GeneratorPage = () => {
         confirmDisabled={isWorking || (warnings.length > 0 && !acknowledged)}
       >
         {state && (
-          <div className="flex flex-col gap-4">
+          <div className='flex flex-col gap-4'>
             <p>
               {editScheduleId !== null ? 'Save changes to' : 'Confirm'}{' '}
               {formatDateRange(state.startDate, state.endDate)} for{' '}
               {state.staffSnapshot.length} staff members.
             </p>
             <p>
-              Nurses {countRange('nurses', 'min')}–{countRange('nurses', 'max')} /{' '}
-              {state.settingsSnapshot.targetNurses} per day · Techs{' '}
+              Nurses {countRange('nurses', 'min')}–{countRange('nurses', 'max')}{' '}
+              / {state.settingsSnapshot.targetNurses} per day · Techs{' '}
               {countRange('techs', 'min')}–{countRange('techs', 'max')} /{' '}
               {state.settingsSnapshot.targetTechs} per day
             </p>
             <p>
-              {warnings.length} {warnings.length === 1 ? 'warning remains' : 'warnings remain'}.
+              {warnings.length}{' '}
+              {warnings.length === 1 ? 'warning remains' : 'warnings remain'}.
             </p>
             {warnings.length > 0 && (
-              <div className="flex items-center gap-3">
-                <label className="toggle">
+              <div className='flex items-center gap-3'>
+                <label className='toggle'>
                   <input
-                    aria-label="Acknowledge warnings"
-                    role="switch"
-                    type="checkbox"
+                    aria-label='Acknowledge warnings'
+                    role='switch'
+                    type='checkbox'
                     checked={acknowledged}
                     onChange={(event) =>
                       setAcknowledged(event.currentTarget.checked)
                     }
                   />
-                  <span className="toggle-track" aria-hidden="true" />
+                  <span className='toggle-track' aria-hidden='true' />
                 </label>
                 <span>I have reviewed and acknowledge the warnings.</span>
               </div>
             )}
-            {savingError && <p role="alert" className="text-cherry-600">{savingError}</p>}
+            {savingError && (
+              <p role='alert' className='text-cherry-600'>
+                {savingError}
+              </p>
+            )}
           </div>
         )}
       </Dialog>
 
       <Dialog
         open={showRegenerate}
-        title="Discard manual edits?"
+        title='Discard manual edits?'
         onCancel={() => setShowRegenerate(false)}
         onConfirm={() => {
           setShowRegenerate(false);
           if (state) runGeneration(state);
         }}
-        confirmLabel="Regenerate"
+        confirmLabel='Regenerate'
       >
         Regenerating will discard all manual swaps and on-call assignments.
       </Dialog>
@@ -1530,7 +2101,7 @@ const GeneratorPage = () => {
           editScheduleId === null &&
           (showDiscard || blocker.state === 'blocked')
         }
-        title="Leave this schedule?"
+        title='Leave this schedule?'
         onCancel={() => {
           setShowDiscard(false);
           setError(null);
@@ -1538,20 +2109,20 @@ const GeneratorPage = () => {
         }}
         onSecondary={() => void saveDraftAndLeave()}
         onConfirm={() => void discardDraft()}
-        cancelLabel="Cancel"
-        secondaryLabel="Save draft"
-        confirmLabel="Discard draft"
+        cancelLabel='Cancel'
+        secondaryLabel='Save draft'
+        confirmLabel='Discard draft'
         confirmDisabled={isWorking}
         secondaryDisabled={isWorking}
-        confirmVariant="danger"
+        confirmVariant='danger'
       >
-        <div className="flex flex-col gap-3">
+        <div className='flex flex-col gap-3'>
           <p>
             Save this draft to continue it later, or discard it to remove it
             permanently. Cancel to stay here and keep editing.
           </p>
           {error && (
-            <p role="alert" className="text-cherry-600">
+            <p role='alert' className='text-cherry-600'>
               {error}
             </p>
           )}
@@ -1560,10 +2131,10 @@ const GeneratorPage = () => {
 
       <Dialog
         open={showBackReview}
-        title="Discard review edits?"
+        title='Discard review edits?'
         onCancel={() => setShowBackReview(false)}
         onConfirm={returnToInputs}
-        confirmLabel="Back to inputs"
+        confirmLabel='Back to inputs'
       >
         Returning to the input step will discard swaps and on-call assignments.
       </Dialog>

@@ -169,6 +169,412 @@ test('saves and restores settings from SQLite', async () => {
   }
 });
 
+test('on-call mode applies department and weekend assignments for eligible staff', async () => {
+  test.setTimeout(90_000);
+  const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-oncall-e2e-'));
+  const app = await launchApp(userDataPath);
+
+  try {
+    const page = await app.firstWindow();
+    await page.waitForLoadState('load');
+    const draftId = await page.evaluate(async () => {
+      const people = await Promise.all([
+        window.staff.create({
+          firstName: 'Full',
+          lastName: 'Dual',
+          title: 'RN',
+          role: 0,
+          employment: 0,
+          departments: [0, 1],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
+        window.staff.create({
+          firstName: 'Part',
+          lastName: 'Dual',
+          title: 'RN',
+          role: 0,
+          employment: 1,
+          departments: [0, 1],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
+        window.staff.create({
+          firstName: 'Pacu',
+          lastName: 'Only',
+          title: 'RN',
+          role: 0,
+          employment: 0,
+          departments: [0],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
+        window.staff.create({
+          firstName: 'Proc',
+          lastName: 'Only',
+          title: 'RN',
+          role: 0,
+          employment: 0,
+          departments: [1],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
+        window.staff.create({
+          firstName: 'Orientation',
+          lastName: 'Staff',
+          title: 'RN',
+          role: 0,
+          employment: 0,
+          departments: [0, 1],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: true,
+          ipcIds: [],
+        }),
+        window.staff.create({
+          firstName: 'Untrained',
+          lastName: 'Staff',
+          title: 'RN',
+          role: 0,
+          employment: 0,
+          departments: [2],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
+        window.staff.create({
+          firstName: 'Charge',
+          lastName: 'Staff',
+          title: 'RN',
+          role: 2,
+          employment: 0,
+          departments: [],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
+      ]);
+      const settings = await window.settings.get();
+      const startDate = '2026-10-05';
+      const dates = Array.from({ length: 42 }, (_, index) => {
+        const date = new Date(`${startDate}T00:00:00.000Z`);
+        date.setUTCDate(date.getUTCDate() + index);
+        return date.toISOString().slice(0, 10);
+      }).filter((date) => settings.workingDays[new Date(`${date}T00:00:00.000Z`).getUTCDay()]);
+      const state = {
+        step: 'review' as const,
+        startDate,
+        endDate: '2026-11-13',
+        fmlaEntries: [],
+        ptoDates: [],
+        prnDates: [],
+        shifts: people.flatMap((person) =>
+          dates
+            .filter(
+              (date) =>
+                !(person.firstName === 'Full' && date === dates[0]),
+            )
+            .map((date) => ({
+            staffId: person.id,
+            date,
+            kind: 'work' as const,
+            countsTowardTargets: true,
+            })),
+        ),
+        onCall: [],
+        onCallDepartments: {},
+        weekendOnCall: [],
+        onCallManuallyEdited: false,
+        staffSnapshot: people,
+        settingsSnapshot: {
+          ...settings,
+          targetNurses: 0,
+          targetTechs: 0,
+        },
+        seed: 1,
+        hasManualEdits: false,
+      };
+      return (await window.segments.create(state)).id;
+    });
+
+    await page.evaluate((id) => {
+      window.location.hash = `/new?draft=${id}`;
+    }, draftId);
+    await expect(
+      page.getByRole('heading', { name: 'Review & overrides' }),
+    ).toBeVisible();
+    await page.getByRole('button', { name: 'Turn on on-call mode' }).click();
+    await expect(
+      page.getByRole('region', { name: 'On-call mode' }),
+    ).toBeVisible();
+    for (const action of ['Undo', 'Redo', 'Regenerate']) {
+      await expect(page.getByRole('button', { name: action })).toHaveCount(0);
+    }
+    await page.getByRole('button', { name: 'Auto apply' }).click();
+    await expect(page.getByRole('button', { name: 'Auto apply' })).toHaveCount(0);
+
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const draft = (await window.segments.list())[0];
+          const weekendCount = (staffId: string) =>
+            (draft?.state.weekendOnCall?.filter(
+              (assignment) => String(assignment.staffId) === staffId,
+            ).length ?? 0) * 2;
+          return {
+            fullTime:
+              (draft?.state.onCall.filter((key) => key.startsWith('1:')).length ?? 0) +
+              weekendCount('1'),
+            partTime:
+              (draft?.state.onCall.filter((key) => key.startsWith('2:')).length ?? 0) +
+              weekendCount('2'),
+            weekend: draft?.state.weekendOnCall?.length,
+          };
+        }),
+      )
+      .toEqual({ fullTime: 5, partTime: 3, weekend: 6 });
+
+    const weekendPicker = page.getByRole('button', { name: 'Weekend OC Week 1' });
+    await weekendPicker.click();
+    const weekendOptions = page.getByRole('listbox', {
+      name: 'Eligible staff for Weekend OC Week 1',
+    });
+    const optionLabels = await weekendOptions.getByRole('option').allTextContents();
+    expect(optionLabels).toEqual(['Assign nurse', 'Dual F.', 'Dual P.']);
+    await expect
+      .poll(() =>
+        weekendOptions.evaluate(
+          (menu) =>
+            menu.getBoundingClientRect().bottom <=
+            menu.parentElement!.getBoundingClientRect().top,
+        ),
+      )
+      .toBe(true);
+    await weekendOptions.getByRole('option', { name: 'Dual P.' }).click();
+    await expect(weekendPicker).toHaveCSS('background-color', 'rgb(11, 92, 86)');
+
+    const dualCell = page
+      .getByRole('button', { name: /Full Dual, .*: (Working|On-call)/ })
+      .first();
+    const dualCellLabel = await dualCell.getAttribute('aria-label');
+    await dualCell.click();
+    const departmentPopup = page.getByRole('dialog', {
+      name: /On-call department for Full Dual/,
+    });
+    await expect(departmentPopup).toBeVisible();
+    const procOption = departmentPopup.getByRole('button', { name: 'PROC' });
+    await procOption.click();
+    await expect(
+      page.getByRole('button', {
+        name: dualCellLabel!.replace(
+          /: (Working|On-call (PACU|PROC))$/,
+          ': On-call PROC',
+        ),
+      }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', {
+        name: dualCellLabel!.replace(
+          /: (Working|On-call (PACU|PROC))$/,
+          ': On-call PROC',
+        ),
+      }),
+    ).toHaveCSS('background-color', 'rgb(181, 211, 52)');
+    await expect(
+      page.getByRole('button', { name: 'Reset to auto' }),
+    ).toBeVisible();
+
+    await page.getByRole('button', { name: 'Reset to auto' }).click();
+    await expect(
+      page.getByRole('button', { name: 'Reset to auto' }),
+    ).toHaveCount(0);
+
+    const orientationCell = page.getByRole('button', {
+      name: /Orientation Staff, .*: Working/,
+    }).first();
+    await expect(orientationCell).toBeEnabled();
+    await orientationCell.click();
+    const orientationWarning = page.getByRole('dialog', {
+      name: 'Confirm on-call assignment',
+    });
+    await expect(
+      orientationWarning.getByText(
+        'This user is in oritentation. Are you sure you want to put them on call?',
+      ),
+    ).toBeVisible();
+    await orientationWarning.getByRole('button', { name: 'Cancel' }).click();
+    await expect(orientationWarning).toHaveCount(0);
+    await page
+      .getByRole('button', { name: /Orientation Staff, .*: Working/ })
+      .first()
+      .click();
+    await page
+      .getByRole('dialog', { name: 'Confirm on-call assignment' })
+      .getByRole('button', { name: 'Confirm' })
+      .click();
+    const orientationDepartment = page.getByRole('dialog', {
+      name: /On-call department for Orientation Staff/,
+    });
+    await orientationDepartment.getByRole('button', { name: 'PACU' }).click();
+    await expect(
+      page.getByRole('button', { name: /Orientation Staff, .*: On-call PACU/ }),
+    ).toBeVisible();
+
+    await page
+      .getByRole('button', { name: /Untrained Staff, .*: Working/ })
+      .first()
+      .click();
+    await page
+      .getByRole('dialog', { name: 'Confirm on-call assignment' })
+      .getByRole('button', { name: 'Confirm' })
+      .click();
+    const untrainedDepartment = page.getByRole('dialog', {
+      name: /On-call department for Untrained Staff/,
+    });
+    await untrainedDepartment.getByRole('button', { name: 'PROC' }).click();
+    await expect(
+      page.getByRole('button', { name: /Untrained Staff, .*: On-call PROC/ }),
+    ).toBeVisible();
+
+    const chargeCell = page.getByRole('button', {
+      name: /Charge Staff, .*: Working/,
+    }).first();
+    await expect(chargeCell).toBeEnabled();
+    await chargeCell.click();
+    const chargeDepartment = page.getByRole('dialog', {
+      name: /On-call department for Charge Staff/,
+    });
+    await expect(chargeDepartment.getByRole('button', { name: 'PACU' })).toBeVisible();
+    await chargeDepartment.getByRole('button', { name: 'PACU' }).click();
+
+    const pacuCell = page.getByRole('button', {
+      name: /Pacu Only, .*: Working/,
+    }).first();
+    const pacuWorkLabel = await pacuCell.getAttribute('aria-label');
+    await pacuCell.click();
+    const pacuOnCall = page.getByRole('button', {
+      name: pacuWorkLabel!.replace(': Working', ': On-call PACU'),
+    });
+    await expect(pacuOnCall).toBeVisible();
+    await expect(pacuOnCall).toHaveCSS('background-color', 'rgb(47, 84, 199)');
+    await pacuOnCall.click();
+    await expect(pacuCell).toBeVisible();
+
+    const procCell = page.getByRole('button', {
+      name: /Proc Only, .*: Working/,
+    }).first();
+    const procWorkLabel = await procCell.getAttribute('aria-label');
+    await procCell.click();
+    const procOnCall = page.getByRole('button', {
+      name: procWorkLabel!.replace(': Working', ': On-call PROC'),
+    });
+    await expect(procOnCall).toBeVisible();
+    await expect(procOnCall).toHaveCSS('background-color', 'rgb(181, 211, 52)');
+    await procOnCall.click();
+    await expect(procCell).toBeVisible();
+
+    await expect(page.getByRole('button', { name: 'Reset to auto' })).toBeVisible();
+    await page.evaluate(async (id) => {
+      const saved = (await window.segments.list()).find(
+        (item) => item.id === id,
+      );
+      if (!saved) throw new Error('On-call schedule draft was not found.');
+      await window.segments.confirm(id, saved.state);
+      window.location.hash = `/schedules/${id}`;
+    }, draftId);
+    await expect(page.locator('.history-details-grid')).toBeVisible();
+    await expect(
+      page.locator('.history-details-grid .schedule-cell-oncall-pacu').first(),
+    ).toBeVisible();
+    await expect(
+      page.locator('.history-details-grid .schedule-cell-oncall-proc').first(),
+    ).toBeVisible();
+    const fullTimeHistoryRow = page
+      .locator('.history-details-grid tbody tr')
+      .filter({ hasText: 'Dual F.' });
+    await expect(fullTimeHistoryRow.locator('td').first()).not.toHaveClass(
+      /schedule-cell-oncall/,
+    );
+    await expect(page.locator('.history-weekend-row td')).toHaveCount(6);
+    const assignedWeekendHistoryCell = page
+      .locator('.history-weekend-row .history-weekend-assignment')
+      .first();
+    await expect(assignedWeekendHistoryCell).toHaveCSS(
+      'background-color',
+      'rgb(11, 92, 86)',
+    );
+    await page.locator('.history-week-header').first().hover();
+    await expect(assignedWeekendHistoryCell).toHaveCSS(
+      'background-color',
+      'rgb(11, 92, 86)',
+    );
+    expect(
+      await page.locator('.schedule-pdf-grid .schedule-pdf-oncall-pacu').count(),
+    ).toBeGreaterThan(0);
+    expect(
+      await page.locator('.schedule-pdf-grid .schedule-pdf-oncall-proc').count(),
+    ).toBeGreaterThan(0);
+    await expect(
+      page.locator('.schedule-pdf-grid .schedule-pdf-weekend-heading'),
+    ).toHaveCount(12);
+    await expect(
+      page.locator('.schedule-pdf-grid .schedule-pdf-weekend-heading').first(),
+    ).toContainText('WKND');
+    await expect(
+      page.locator('.schedule-pdf-grid .schedule-pdf-weekend-row'),
+    ).toHaveCount(0);
+    await expect(page.locator('.schedule-pdf-legend')).toHaveCount(2);
+    await expect(page.locator('.schedule-pdf-legend').first()).toContainText(
+      'PROC Call',
+    );
+    await expect(page.locator('.schedule-pdf-legend').first()).toContainText(
+      'PACU Call',
+    );
+    await expect(page.locator('.schedule-pdf-legend').first()).toContainText(
+      'Weekend Call',
+    );
+    await page.emulateMedia({ media: 'print' });
+    await expect(
+      page.locator('.schedule-pdf-grid .schedule-pdf-oncall-pacu').first(),
+    ).toHaveCSS('background-color', 'rgb(47, 84, 199)');
+    await expect(
+      page.locator('.schedule-pdf-grid .schedule-pdf-oncall-proc').first(),
+    ).toHaveCSS('background-color', 'rgb(181, 211, 52)');
+    await expect(
+      page.locator('.schedule-pdf-grid .schedule-pdf-weekend-assigned').first(),
+    ).toHaveCSS('background-color', 'rgb(11, 92, 86)');
+    await expect(
+      page.locator('.schedule-pdf-grid .schedule-pdf-weekend:not(.schedule-pdf-weekend-assigned)').first(),
+    ).toHaveCSS('background-color', 'rgb(229, 231, 235)');
+    await expect(
+      page.locator('.schedule-pdf-grid .schedule-pdf-weekend-heading span').first(),
+    ).toHaveCSS(
+      'transform',
+      /matrix\(0\.707107, -0\.707107, 0\.707107, 0\.707107,/,
+    );
+    await expect(
+      page
+        .locator('.schedule-pdf-grid tbody tr')
+        .filter({ hasText: 'Dual F.' })
+        .locator('td')
+        .first(),
+    ).not.toHaveClass(/schedule-pdf-oncall/);
+  } finally {
+    await app.close();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
 test('creates, edits, reloads, and deletes staff in SQLite', async () => {
   test.setTimeout(120_000);
 
@@ -536,7 +942,7 @@ test('creates and confirms a six-week schedule', async () => {
       page.locator('.schedule-steps').getByText('Confirm', { exact: true }),
     ).toBeVisible();
     for (const [name, iconClass, title] of [
-      ['On-call mode', 'bi-telephone', 'Toggle on-call mode'],
+      ['Turn on on-call mode', 'bi-telephone', 'Turn on on-call mode'],
       ['Undo', 'bi-arrow-counterclockwise', 'Undo last change'],
       ['Redo', 'bi-arrow-clockwise', 'Redo last undone change'],
       ['Regenerate', 'bi-arrow-repeat', 'Regenerate schedule'],
@@ -561,7 +967,7 @@ test('creates and confirms a six-week schedule', async () => {
       )
       .toEqual(ptoBeforeHover);
 
-    await page.getByRole('button', { name: 'On-call mode' }).click();
+    await page.getByRole('button', { name: 'Turn on on-call mode' }).click();
     await expect(
       page.getByRole('button', { name: /Ada Nurse, .*: Working/ }).first(),
     ).toBeEnabled();
@@ -570,7 +976,7 @@ test('creates and confirms a six-week schedule', async () => {
     ).toBeDisabled();
     await expect(reviewPtoCell).toHaveText('–');
     await expect(reviewPtoCell).not.toHaveClass(/schedule-cell-pto/);
-    await page.getByRole('button', { name: 'On-call mode' }).click();
+    await page.getByRole('switch', { name: 'Turn off on-call mode' }).click();
     await expect(reviewPtoCell).toHaveText('P');
     await expect(reviewPtoCell).toHaveClass(/schedule-cell-pto/);
     const reviewFmlaCell = page.getByRole('button', { name: /Penny Prn, .*: FMLA/ }).first();
@@ -582,7 +988,7 @@ test('creates and confirms a six-week schedule', async () => {
       )
       .toBe('rgb(232, 228, 248)');
 
-    await page.getByRole('button', { name: 'On-call mode' }).click();
+    await page.getByRole('button', { name: 'Turn on on-call mode' }).click();
     const workingCell = page
       .getByRole('button', { name: /Ada Nurse, .*: Working/ })
       .first();
@@ -604,7 +1010,7 @@ test('creates and confirms a six-week schedule', async () => {
         })),
       )
       .toEqual(onCallBeforeHover);
-    await page.getByRole('button', { name: 'On-call mode' }).click();
+    await page.getByRole('switch', { name: 'Turn off on-call mode' }).click();
     const prnReviewCell = page.getByRole('button', { name: /Penny Prn, .*: Working/ }).first();
     await expect(prnReviewCell).toBeDisabled();
     await expect(page.getByLabel('PRN').first()).toHaveAttribute('title', 'PRN');

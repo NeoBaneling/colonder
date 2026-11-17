@@ -1,6 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
-import { Emp, Role, type ScheduleSegment, type WeeklySchedule } from '@app/types';
+import {
+  Dept,
+  Emp,
+  Role,
+  type ScheduleSegment,
+  type WeeklySchedule,
+} from '@app/types';
 import { IconButton } from '../inputs/IconButton';
 import { PageContent } from '../layout/PageContent';
 import { PrintFooter } from './PrintFooter';
@@ -108,6 +114,7 @@ export const HistoryDetailsPage = () => {
 
   const rows = useMemo(() => {
     if (!segment) return [] as Array<{
+      staffId: number;
       name: string;
       role: Role;
       employment: Emp;
@@ -138,6 +145,7 @@ export const HistoryDetailsPage = () => {
         }
       }
       return {
+        staffId: person.id,
         name: `${person.lastName} ${person.firstName.slice(0, 1)}.`,
         role: person.role,
         employment: person.employment,
@@ -165,6 +173,30 @@ export const HistoryDetailsPage = () => {
     }`;
   const printWeekClassName = (weekIndex: number) =>
     `history-week-group-${weekIndex} ${weekIndex % 2 === 0 ? 'history-week-even' : 'history-week-odd'}`;
+  const weekendStaffId = (weekStart: string) =>
+    segment?.state.weekendOnCall?.find(
+      (assignment) => assignment.weekStart === weekStart,
+    )?.staffId ?? null;
+  const staffName = (staffId: number | null) => {
+    if (staffId === null || !segment) return '';
+    const person = segment.state.staffSnapshot.find(
+      (member) => member.id === staffId,
+    );
+    return person ? `${person.lastName} ${person.firstName.slice(0, 1)}.` : '';
+  };
+  const onCallDepartmentFor = (staffId: number, date: string) => {
+    const key = `${staffId}:${date}`;
+    const department = segment?.state.onCallDepartments?.[key];
+    if (department === Dept.PACU || department === Dept.PROC) return department;
+    const person = segment?.state.staffSnapshot.find(
+      (member) => member.id === staffId,
+    );
+    if (person?.departments.includes(Dept.PACU)) return Dept.PACU;
+    if (person?.departments.includes(Dept.PROC)) return Dept.PROC;
+    return undefined;
+  };
+  const weekendCellClass = (rowStaffId: number, weekStart: string) =>
+    `schedule-pdf-weekend${weekendStaffId(weekStart) === rowStaffId ? ' schedule-pdf-weekend-assigned' : ''}`;
 
   const dateTotals = useMemo(() => {
     if (!segment) return new Map<string, { nurses: number; techs: number }>();
@@ -248,7 +280,7 @@ export const HistoryDetailsPage = () => {
             {weekGroups.map((group, index) => (
               <th
                 key={`${group.start}-${group.end}`}
-                colSpan={group.dates.length}
+                colSpan={group.dates.length + 1}
                 className={index % 2 === 0 ? 'schedule-pdf-week-even' : ''}
               >
                 <span>{group.label}</span>
@@ -258,49 +290,81 @@ export const HistoryDetailsPage = () => {
           </tr>
           <tr>
             <th className="schedule-pdf-name" />
-            {allDates.map((date) => (
+            {weekGroups.flatMap((group, groupIndex) => [
+              ...group.dates.map((date) => (
+                <th
+                  key={date}
+                  className={printWeekClassName(groupIndex)}
+                >
+                  {new Intl.DateTimeFormat('en-US', {
+                    weekday: 'short',
+                    timeZone: 'UTC',
+                  })
+                    .format(new Date(`${date}T00:00:00.000Z`))
+                    .slice(0, 1)}
+                </th>
+              )),
               <th
-                key={date}
-                className={printWeekClassName(groupByDate.get(date) ?? 0)}
+                key={`${group.start}-weekend`}
+                className="schedule-pdf-weekend-heading"
+                title="Weekend Call"
               >
-                {new Intl.DateTimeFormat('en-US', {
-                  weekday: 'short',
-                  timeZone: 'UTC',
-                })
-                  .format(new Date(`${date}T00:00:00.000Z`))
-                  .slice(0, 1)}
-              </th>
-            ))}
+                <span>WKND</span>
+              </th>,
+            ])}
           </tr>
         </thead>
         <tbody>
           {sections.map((section) => (
             <Fragment key={section.label}>
               <tr className="schedule-pdf-section" key={`${section.label}-label`}>
-                <th colSpan={allDates.length + 1}>{section.label}</th>
+                <th colSpan={allDates.length + weekGroups.length + 1}>
+                  {section.label}
+                </th>
               </tr>
               {section.rows.map((row) => (
                 <tr key={row.name}>
                   <th className="schedule-pdf-name" scope="row">{row.name}</th>
-                  {allDates.map((date) => {
-                    const value = row.status[date] ?? '–';
-                    return (
-                      <td
-                        key={`${row.name}-${date}`}
-                        className={`${printWeekClassName(groupByDate.get(date) ?? 0)} ${
-                          value === 'W'
-                            ? 'schedule-pdf-work'
-                            : value === 'P'
-                              ? 'schedule-pdf-pto'
-                              : value === 'F'
-                                ? 'schedule-pdf-fmla'
-                              : ''
-                        }`}
-                      >
-                        {value}
-                      </td>
-                    );
-                  })}
+                  {weekGroups.flatMap((group, groupIndex) => [
+                    ...group.dates.map((date) => {
+                      const value = row.status[date] ?? '–';
+                      const onCallDepartment =
+                        value === 'OC'
+                          ? onCallDepartmentFor(row.staffId, date)
+                          : undefined;
+                      return (
+                        <td
+                          key={`${row.name}-${date}`}
+                          className={`${printWeekClassName(groupIndex)} ${
+                            value === 'W'
+                              ? 'schedule-pdf-work'
+                              : value === 'P'
+                                ? 'schedule-pdf-pto'
+                                : value === 'F'
+                                  ? 'schedule-pdf-fmla'
+                                  : onCallDepartment === Dept.PACU
+                                    ? 'schedule-pdf-oncall-pacu'
+                                    : onCallDepartment === Dept.PROC
+                                      ? 'schedule-pdf-oncall-proc'
+                                      : ''
+                          }`}
+                        >
+                          {value}
+                        </td>
+                      );
+                    }),
+                    <td
+                      key={`${row.name}-${group.start}-weekend`}
+                      className={weekendCellClass(row.staffId, group.start)}
+                      aria-label={
+                        weekendStaffId(group.start) === row.staffId
+                          ? 'Weekend on-call'
+                          : undefined
+                      }
+                    >
+                      {weekendStaffId(group.start) === row.staffId ? 'OC' : ''}
+                    </td>,
+                  ])}
                 </tr>
               ))}
             </Fragment>
@@ -309,13 +373,24 @@ export const HistoryDetailsPage = () => {
         <tfoot>
           <tr>
             <th className="schedule-pdf-name" scope="row">Total</th>
-            {allDates.map((date) => (
-              <td key={date}>{dateTotals.get(date)?.[total] ?? 0}</td>
-            ))}
+            {weekGroups.flatMap((group) => [
+              ...group.dates.map((date) => (
+                <td key={date}>{dateTotals.get(date)?.[total] ?? 0}</td>
+              )),
+              <td
+                key={`${group.start}-total-weekend`}
+                className="schedule-pdf-weekend"
+              />,
+            ])}
           </tr>
         </tfoot>
       </table>
-      <p className="schedule-pdf-legend">W work · – off · P PTO · F FMLA · OC on-call.</p>
+      <div className="schedule-pdf-legend">
+        <span>W work · – off · P PTO · F FMLA</span>
+        <span><i className="schedule-pdf-legend-swatch schedule-pdf-legend-proc" />PROC Call</span>
+        <span><i className="schedule-pdf-legend-swatch schedule-pdf-legend-pacu" />PACU Call</span>
+        <span><i className="schedule-pdf-legend-swatch schedule-pdf-legend-weekend" />Weekend Call</span>
+      </div>
       <PrintFooter pageNumber={pageNumber} totalPages={2} />
       </section>
     );
@@ -432,6 +507,10 @@ export const HistoryDetailsPage = () => {
                   </th>
                   {allDates.map((date) => {
                     const value = row.status[date];
+                    const onCallDepartment =
+                      value === 'OC'
+                        ? onCallDepartmentFor(row.staffId, date)
+                        : undefined;
                     const cellClass =
                       value === 'W'
                         ? 'schedule-cell-work'
@@ -439,7 +518,11 @@ export const HistoryDetailsPage = () => {
                           ? 'schedule-cell-pto'
                           : value === 'F'
                             ? 'schedule-cell-fmla'
-                          : '';
+                            : onCallDepartment === Dept.PACU
+                              ? 'schedule-cell-oncall schedule-cell-oncall-pacu'
+                              : onCallDepartment === Dept.PROC
+                                ? 'schedule-cell-oncall schedule-cell-oncall-proc'
+                                : '';
                     return (
                       <td
                         key={`${row.name}-${date}`}
@@ -482,6 +565,20 @@ export const HistoryDetailsPage = () => {
                     onMouseLeave={() => setHoveredWeek(null)}
                   >
                     <span className="schedule-total">{dateTotals.get(date)?.techs ?? 0}</span>
+                  </td>
+                ))}
+              </tr>
+              <tr className="history-weekend-row">
+                <th className="schedule-name-cell" scope="row">
+                  Weekend OC
+                </th>
+                {weekGroups.map((group, index) => (
+                  <td
+                    key={group.start}
+                    colSpan={group.dates.length}
+                    className={`${printWeekClassName(index)}${weekendStaffId(group.start) !== null ? ' history-weekend-assignment' : ''}`}
+                  >
+                    {staffName(weekendStaffId(group.start))}
                   </td>
                 ))}
               </tr>

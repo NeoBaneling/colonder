@@ -181,6 +181,28 @@ function assertValidSegmentState(value: unknown): asserts value is SegmentState 
     !state.prnDates.every((key) => typeof key === 'string') ||
     !Array.isArray(state.onCall) ||
     !state.onCall.every((key) => typeof key === 'string') ||
+    (state.onCallDepartments !== undefined &&
+      (typeof state.onCallDepartments !== 'object' ||
+        state.onCallDepartments === null ||
+        Array.isArray(state.onCallDepartments) ||
+        !Object.values(state.onCallDepartments).every(
+          (department) => department === Dept.PACU || department === Dept.PROC,
+        ))) ||
+    (state.weekendOnCall !== undefined &&
+      (!Array.isArray(state.weekendOnCall) ||
+        !state.weekendOnCall.every((assignment) => {
+          if (typeof assignment !== 'object' || assignment === null) return false;
+          const entry = assignment as Record<string, unknown>;
+          return (
+            isISODate(entry.weekStart) &&
+            (entry.staffId === null ||
+              (Number.isSafeInteger(entry.staffId) && Number(entry.staffId) > 0))
+          );
+        }))) ||
+    (state.onCallManuallyEdited !== undefined &&
+      typeof state.onCallManuallyEdited !== 'boolean') ||
+    (state.onCallAutoApplied !== undefined &&
+      typeof state.onCallAutoApplied !== 'boolean') ||
     !Array.isArray(state.shifts) ||
     !state.shifts.every(
       (shift) =>

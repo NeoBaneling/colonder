@@ -79,6 +79,10 @@ export interface SegmentState {
   prnDates: string[];
   shifts: SegmentShift[];
   onCall: string[];
+  onCallDepartments?: Record<string, Dept>;
+  weekendOnCall?: Array<{ weekStart: string; staffId: number | null }>;
+  onCallManuallyEdited?: boolean;
+  onCallAutoApplied?: boolean;
   staffSnapshot: Staff[];
   settingsSnapshot: Settings;
   seed: number;

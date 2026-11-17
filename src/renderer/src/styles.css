@@ -28,6 +28,8 @@
   --color-mint-400: #0f6961;
   --color-mint-600: #0b5c56;
   --color-fuchsia: #8a1d3b;
+  --color-oncall-proc: #b5d334;
+  --color-oncall-pacu: #2f54c7;
 
   --breakpoint-*: initial;
   --breakpoint-sm: 45rem;
@@ -259,6 +261,49 @@
     print-color-adjust: exact;
   }
 
+  .schedule-pdf-grid tbody td.schedule-pdf-oncall-pacu {
+    background: var(--color-oncall-pacu) !important;
+    color: #fff;
+    font-weight: 700;
+    print-color-adjust: exact;
+  }
+
+  .schedule-pdf-grid tbody td.schedule-pdf-oncall-proc {
+    background: var(--color-oncall-proc) !important;
+    color: #1f2937;
+    font-weight: 700;
+    print-color-adjust: exact;
+  }
+
+  .schedule-pdf-grid .schedule-pdf-weekend,
+  .schedule-pdf-grid .schedule-pdf-weekend-heading {
+    background: #e5e7eb !important;
+    color: #6b7a7a;
+    print-color-adjust: exact;
+  }
+
+  .schedule-pdf-grid .schedule-pdf-weekend-heading {
+    position: relative;
+    overflow: visible;
+    padding: 0;
+  }
+
+  .schedule-pdf-grid .schedule-pdf-weekend-heading span {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    white-space: nowrap;
+    transform: translate(-50%, -50%) rotate(-45deg);
+    transform-origin: center;
+  }
+
+  .schedule-pdf-grid .schedule-pdf-weekend-assigned {
+    background: var(--color-mint-600) !important;
+    color: #fff;
+    font-weight: 700;
+    print-color-adjust: exact;
+  }
+
   .schedule-pdf-grid tfoot th,
   .schedule-pdf-grid tfoot td {
     border-top: 2px solid #9aa8a8;
@@ -266,11 +311,40 @@
   }
 
   .schedule-pdf-legend {
+    display: flex;
+    align-items: center;
+    gap: 0.16in;
     margin-top: 0.1in;
     color: #6b7a7a;
     font:
       7pt 'Nunito',
       sans-serif;
+  }
+
+  .schedule-pdf-legend > span {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .schedule-pdf-legend-swatch {
+    display: inline-block;
+    width: 0.12in;
+    height: 0.12in;
+    border: 1px solid #9aa8a8;
+    print-color-adjust: exact;
+  }
+
+  .schedule-pdf-legend-proc {
+    background: var(--color-oncall-proc);
+  }
+
+  .schedule-pdf-legend-pacu {
+    background: var(--color-oncall-pacu);
+  }
+
+  .schedule-pdf-legend-weekend {
+    background: var(--color-mint-600);
   }
 
   body:has(.weekly-schedule-grid) .weekly-schedule-scroll {
@@ -1339,6 +1413,127 @@
     scrollbar-color: var(--color-grey-200) var(--color-grey-50);
   }
 
+  .oncall-banner {
+    display: flex;
+    min-height: 3.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border: 1px solid var(--color-grey-50);
+    border-radius: 0.875rem;
+    background: #f1f5f9;
+    padding: 0.625rem 1rem;
+  }
+
+  .oncall-banner-title,
+  .oncall-banner-controls,
+  .oncall-legend,
+  .oncall-legend > span,
+  .oncall-mode-control {
+    display: flex;
+    align-items: center;
+  }
+
+  .oncall-banner-title {
+    gap: 0.75rem;
+    color: var(--color-grey-900);
+  }
+
+  .oncall-banner-title strong {
+    font-size: 0.95rem;
+  }
+
+  .oncall-banner-icon {
+    display: inline-flex;
+    width: 2rem;
+    height: 2rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background: #e2e8f0;
+    color: var(--color-grey-900);
+  }
+
+  .oncall-banner-controls {
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.875rem;
+  }
+
+  .oncall-legend {
+    gap: 0.75rem;
+    color: var(--color-grey-900);
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .oncall-legend > span {
+    gap: 0.3rem;
+  }
+
+  .oncall-legend-dot {
+    display: inline-block;
+    width: 0.65rem;
+    height: 0.65rem;
+    flex: 0 0 0.65rem;
+    border-radius: 0.15rem;
+  }
+
+  .oncall-proc {
+    background: var(--color-oncall-proc);
+  }
+
+  .oncall-pacu {
+    background: var(--color-oncall-pacu);
+  }
+
+  .oncall-reset {
+    border: 0;
+    background: transparent;
+    padding: 0.25rem 0;
+    color: var(--color-mint-600);
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 700;
+    text-decoration: underline;
+    text-underline-offset: 0.15rem;
+  }
+
+  .oncall-mode-control {
+    gap: 0.5rem;
+    color: var(--color-grey-900);
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .oncall-mode-switch {
+    display: inline-flex;
+    width: 2.75rem;
+    height: 1.5rem;
+    align-items: center;
+    border: 0;
+    border-radius: 9999px;
+    background: var(--color-mint-600);
+    padding: 0.2rem;
+    cursor: pointer;
+  }
+
+  .oncall-mode-switch > span {
+    width: 1.1rem;
+    height: 1.1rem;
+    margin-left: auto;
+    border-radius: 9999px;
+    background: var(--color-white);
+  }
+
+  .oncall-mode-switch:focus-visible,
+  .oncall-reset:focus-visible,
+  .schedule-weekend-select:focus-visible {
+    outline: 2px solid var(--color-mint-300);
+    outline-offset: 2px;
+  }
+
   .schedule-grid {
     width: max-content;
     min-width: 100%;
@@ -1470,6 +1665,16 @@
     color: #4c3a9e !important;
   }
 
+  .history-week-hover .schedule-cell.schedule-cell-oncall-pacu {
+    background-color: var(--color-oncall-pacu) !important;
+    color: var(--color-white) !important;
+  }
+
+  .history-week-hover .schedule-cell.schedule-cell-oncall-proc {
+    background-color: var(--color-oncall-proc) !important;
+    color: var(--color-grey-900) !important;
+  }
+
   .history-details-grid .schedule-name-cell {
     z-index: 11;
   }
@@ -1499,6 +1704,32 @@
   .history-details-grid .schedule-cell-fmla .schedule-cell {
     background: #e8e4f8;
     color: #4c3a9e;
+  }
+
+  .history-details-grid .schedule-cell-oncall-pacu {
+    background: var(--color-oncall-pacu);
+    color: var(--color-white);
+    font-weight: 700;
+  }
+
+  .history-details-grid .schedule-cell-oncall-proc {
+    background: var(--color-oncall-proc);
+    color: var(--color-grey-900);
+    font-weight: 700;
+  }
+
+  .history-weekend-row td {
+    background: #e5e7eb;
+    color: var(--color-grey-600);
+    font-weight: 700;
+    text-align: center;
+  }
+
+  .history-weekend-row .history-weekend-assignment {
+    background: var(--color-mint-600);
+    color: var(--color-white);
+    text-align: left;
+    padding-left: 0.5rem;
   }
 
   .history-grid-scroll[data-scrolled='true'] .schedule-name-cell::before,
@@ -1799,6 +2030,208 @@
     font-size: 0.6rem;
   }
 
+  .schedule-cell-oncall-pacu,
+  .schedule-cell-oncall-pacu:disabled {
+    background: var(--color-oncall-pacu);
+    color: var(--color-white);
+  }
+
+  .schedule-cell-oncall-proc,
+  .schedule-cell-oncall-proc:disabled {
+    background: var(--color-oncall-proc);
+    color: var(--color-grey-900);
+  }
+
+  .schedule-cell-oncall-pacu:hover,
+  .schedule-cell-oncall-proc:hover {
+    filter: brightness(0.94);
+  }
+
+  .review-grid tbody td {
+    position: relative;
+  }
+
+  .oncall-department-popup {
+    position: absolute;
+    z-index: 20;
+    top: calc(100% + 0.4rem);
+    left: 50%;
+    width: min(16rem, 80vw);
+    border: 1px solid var(--color-grey-100);
+    border-radius: 0.75rem;
+    background: var(--color-white);
+    padding: 0.75rem;
+    box-shadow: 0 0.5rem 1.5rem rgb(31 41 55 / 18%);
+    color: var(--color-grey-900);
+    text-align: left;
+    transform: translateX(-50%);
+    white-space: normal;
+  }
+
+  .oncall-department-heading,
+  .oncall-popup-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  .oncall-department-heading {
+    font-size: 0.75rem;
+  }
+
+  .oncall-department-heading span {
+    color: var(--color-grey-200);
+  }
+
+  .oncall-department-options {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.4rem;
+    margin-top: 0.65rem;
+  }
+
+  .oncall-department-option {
+    display: inline-flex;
+    min-height: 2.25rem;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    border: 1px solid var(--color-grey-100);
+    border-radius: 0.5rem;
+    background: var(--color-white);
+    color: var(--color-grey-900);
+    cursor: pointer;
+    font-size: 0.75rem;
+    font-weight: 700;
+  }
+
+  .oncall-department-option[aria-pressed='true'] {
+    border-color: var(--color-mint-300);
+    background: var(--color-mint-100);
+  }
+
+  .oncall-department-option:hover,
+  .oncall-department-option:focus-visible {
+    border-color: var(--color-mint-300);
+    background: var(--color-mint-100);
+    outline: none;
+  }
+
+  .oncall-department-popup p {
+    margin: 0.6rem 0;
+    color: var(--color-grey-600);
+    font-size: 0.7rem;
+    font-weight: 700;
+  }
+
+  .oncall-popup-actions {
+    justify-content: flex-end;
+  }
+
+  .oncall-remove,
+  .oncall-done {
+    min-height: 2rem;
+    border: 1px solid var(--color-mint-300);
+    border-radius: 0.45rem;
+    background: var(--color-white);
+    padding: 0.25rem 0.65rem;
+    color: var(--color-mint-600);
+    cursor: pointer;
+    font-size: 0.7rem;
+    font-weight: 700;
+  }
+
+  .oncall-done {
+    background: var(--color-mint-600);
+    color: var(--color-white);
+  }
+
+  .schedule-weekend-row th,
+  .schedule-weekend-row td {
+    padding-top: 0.25rem;
+  }
+
+  .schedule-weekend-row td {
+    position: relative;
+  }
+
+  .schedule-weekend-picker {
+    position: relative;
+    width: 100%;
+  }
+
+  .schedule-weekend-select {
+    display: flex;
+    width: 100%;
+    min-width: 6rem;
+    min-height: 1.85rem;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.35rem;
+    border: 1px solid var(--color-mint-600);
+    border-radius: 0.375rem;
+    background: var(--color-mint-600);
+    padding: 0.2rem 0.35rem;
+    color: var(--color-white);
+    cursor: pointer;
+    font-family: var(--font-sans);
+    font-size: 0.65rem;
+    font-weight: 700;
+  }
+
+  .schedule-weekend-select:hover,
+  .schedule-weekend-select[aria-expanded='true'] {
+    background: var(--color-mint-300);
+    color: var(--color-white);
+  }
+
+  .schedule-weekend-select:disabled {
+    border-color: var(--color-grey-100);
+    background: var(--color-grey-100);
+    color: var(--color-white);
+    cursor: not-allowed;
+  }
+
+  .schedule-weekend-options {
+    position: absolute;
+    z-index: 30;
+    right: 0;
+    bottom: calc(100% + 0.3rem);
+    left: 0;
+    display: flex;
+    max-height: 14rem;
+    flex-direction: column;
+    gap: 1px;
+    overflow: auto;
+    border: 1px solid var(--color-mint-600);
+    border-radius: 0.5rem;
+    background: var(--color-white);
+    padding: 0.2rem;
+    box-shadow: 0 0.5rem 1rem rgb(31 41 55 / 18%);
+  }
+
+  .schedule-weekend-options button {
+    min-height: 1.75rem;
+    border: 0;
+    border-radius: 0.25rem;
+    background: var(--color-white);
+    padding: 0.25rem 0.4rem;
+    color: var(--color-mint-600);
+    cursor: pointer;
+    font-family: var(--font-sans);
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-align: left;
+  }
+
+  .schedule-weekend-options button:hover,
+  .schedule-weekend-options button:focus-visible,
+  .schedule-weekend-options button[aria-selected='true'] {
+    background: var(--color-mint-100);
+    outline: none;
+  }
+
   .schedule-cell:disabled {
     cursor: default;
     opacity: 1;
@@ -1843,9 +2276,39 @@
   .review-grid
     tbody
     tr:hover
-    .schedule-cell.schedule-cell-oncall:not(.schedule-cell-selected) {
+    .schedule-cell.schedule-cell-oncall:not(.schedule-cell-selected):not(
+      .schedule-cell-oncall-pacu
+    ):not(.schedule-cell-oncall-proc) {
     background-color: var(--color-grey-900) !important;
     color: var(--color-white) !important;
+  }
+
+  .review-grid
+    tbody
+    tr:hover
+    .schedule-cell.schedule-cell-oncall-pacu:not(.schedule-cell-selected),
+  .review-grid
+    tbody
+    tr:hover
+    .schedule-cell.schedule-cell-oncall-pacu:not(
+      .schedule-cell-selected
+    ):disabled {
+    background-color: var(--color-oncall-pacu) !important;
+    color: var(--color-white) !important;
+  }
+
+  .review-grid
+    tbody
+    tr:hover
+    .schedule-cell.schedule-cell-oncall-proc:not(.schedule-cell-selected),
+  .review-grid
+    tbody
+    tr:hover
+    .schedule-cell.schedule-cell-oncall-proc:not(
+      .schedule-cell-selected
+    ):disabled {
+    background-color: var(--color-oncall-proc) !important;
+    color: var(--color-grey-900) !important;
   }
 
   .review-grid tbody tr:hover .schedule-name-cell::after {
@@ -1875,7 +2338,10 @@
   }
 
   .review-grid .schedule-cell.schedule-cell-fmla.schedule-cell-disabled,
-  .review-grid tbody tr:hover .schedule-cell.schedule-cell-fmla.schedule-cell-disabled {
+  .review-grid
+    tbody
+    tr:hover
+    .schedule-cell.schedule-cell-fmla.schedule-cell-disabled {
     background: #e8e4f8 !important;
     color: #4c3a9e !important;
   }
