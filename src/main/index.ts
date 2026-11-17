@@ -815,6 +815,15 @@ app.whenReady().then(() => {
         .run(id).changes > 0
     );
   });
+  ipcMain.handle('segments:delete', (_event, id: number): boolean => {
+    if (!Number.isSafeInteger(id) || id < 1) {
+      throw new TypeError('Invalid schedule ID.');
+    }
+    return (
+      database.prepare('DELETE FROM schedule_segment WHERE id = ?').run(id)
+        .changes > 0
+    );
+  });
 
   ipcMain.handle(
     'weekly-schedules:list',

@@ -29,6 +29,7 @@ declare global {
       confirm: (id: number, state: SegmentState) => Promise<ScheduleSegment>
       updateConfirmed: (id: number, state: SegmentState) => Promise<ScheduleSegment>
       deleteDraft: (id: number) => Promise<boolean>
+      delete: (id: number) => Promise<boolean>
     }
     schedules: {
       downloadPdf: (filename: string) => Promise<{ canceled: boolean }>

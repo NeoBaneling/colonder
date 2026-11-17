@@ -42,7 +42,6 @@ import {
   nextWorkingStart,
   ptoChangeCount,
   segmentEndDate,
-  validateSegment,
   weekIndex,
 } from './engine';
 import {
@@ -243,7 +242,7 @@ const InputGrid = ({
                 <tr key={person.id}>
                   <th className='schedule-name-cell' scope='row'>
                     <span className='schedule-staff-label'>
-                      {person.lastName}, {person.firstName.slice(0, 1)}.
+                      {person.firstName} {person.lastName.slice(0, 1)}.
                     </span>
                     {person.role === Role.ChargeNurse && (
                       <span className='schedule-role-label'>CSL</span>
@@ -359,7 +358,6 @@ const GeneratorPage = () => {
   const [redoStack, setRedoStack] = useState<ReviewEdit[]>([]);
   const [showConfirm, setShowConfirm] = useState(false);
   const [showRegenerate, setShowRegenerate] = useState(false);
-  const [acknowledged, setAcknowledged] = useState(false);
   const [showDiscard, setShowDiscard] = useState(false);
   const [showBackReview, setShowBackReview] = useState(false);
   const [reviewGridScrolled, setReviewGridScrolled] = useState(false);
@@ -427,6 +425,9 @@ const GeneratorPage = () => {
             setView(draft.state.step);
           }
         } else {
+          setDraftId(null);
+          setEditScheduleId(null);
+          setView('fmla');
           const previousSegment = savedSegments
             .filter((segment) => segment.status === 'confirmed')
             .sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
@@ -549,20 +550,6 @@ const GeneratorPage = () => {
   const weekendOnCallStaff = useMemo(
     () => people.filter(isWeekendOnCallEligible),
     [people],
-  );
-  const warnings = useMemo(
-    () =>
-      state
-        ? validateSegment(
-            state.staffSnapshot,
-            dates,
-            state.shifts,
-            state.settingsSnapshot,
-            state.onCall,
-            state.startDate,
-          )
-        : [],
-    [dates, state],
   );
   const reviewCounts = state
     ? dates.map((date) => dailyCounts(date, state.staffSnapshot, state.shifts))
@@ -1154,7 +1141,7 @@ const GeneratorPage = () => {
   }, [redo, undo, view]);
 
   const confirmSchedule = async () => {
-    if (!state || (warnings.length > 0 && !acknowledged)) return;
+    if (!state) return;
     setIsWorking(true);
     try {
       let scheduleId = editScheduleId ?? draftId;
@@ -1421,7 +1408,7 @@ const GeneratorPage = () => {
                         >
                           <th scope='row'>
                             <span>
-                              {person.lastName}, {person.firstName}
+                              {person.firstName} {person.lastName.slice(0, 1)}.
                             </span>
                             {entry?.rolledOver && (
                               <span
@@ -1883,7 +1870,7 @@ const GeneratorPage = () => {
                           scope='row'
                         >
                           <span className='schedule-staff-label'>
-                            {person.lastName}, {person.firstName.slice(0, 1)}.
+                            {person.firstName} {person.lastName.slice(0, 1)}.
                           </span>
                           {person.role === Role.ChargeNurse && (
                             <span className='schedule-role-label'>CSL</span>
@@ -2210,7 +2197,7 @@ const GeneratorPage = () => {
                                   }
                                 >
                                   {assignedStaff
-                                    ? `${assignedStaff.lastName} ${assignedStaff.firstName.slice(0, 1)}.`
+                                    ? `${assignedStaff.firstName} ${assignedStaff.lastName.slice(0, 1)}.`
                                     : 'Assign nurse'}
                                   <i
                                     className='bi bi-chevron-down'
@@ -2252,8 +2239,8 @@ const GeneratorPage = () => {
                                           setWeekendPopupWeek(null);
                                         }}
                                       >
-                                        {person.lastName}{' '}
-                                        {person.firstName.slice(0, 1)}.
+                                        {person.firstName}{' '}
+                                        {person.lastName.slice(0, 1)}.
                                       </button>
                                     ))}
                                   </div>
@@ -2304,7 +2291,6 @@ const GeneratorPage = () => {
                     if (ptoMode) {
                       requestPtoRecalculation();
                     } else {
-                      setAcknowledged(false);
                       setShowConfirm(true);
                     }
                   }}
@@ -2371,7 +2357,7 @@ const GeneratorPage = () => {
               ? 'Save changes'
               : 'Confirm schedule'
         }
-        confirmDisabled={isWorking || (warnings.length > 0 && !acknowledged)}
+        confirmDisabled={isWorking}
       >
         {state && (
           <div className='flex flex-col gap-4'>
@@ -2386,27 +2372,6 @@ const GeneratorPage = () => {
               {countRange('techs', 'min')}–{countRange('techs', 'max')} /{' '}
               {state.settingsSnapshot.targetTechs} per day
             </p>
-            <p>
-              {warnings.length}{' '}
-              {warnings.length === 1 ? 'warning remains' : 'warnings remain'}.
-            </p>
-            {warnings.length > 0 && (
-              <div className='flex items-center gap-3'>
-                <label className='toggle'>
-                  <input
-                    aria-label='Acknowledge warnings'
-                    role='switch'
-                    type='checkbox'
-                    checked={acknowledged}
-                    onChange={(event) =>
-                      setAcknowledged(event.currentTarget.checked)
-                    }
-                  />
-                  <span className='toggle-track' aria-hidden='true' />
-                </label>
-                <span>I have reviewed and acknowledge the warnings.</span>
-              </div>
-            )}
             {savingError && (
               <p role='alert' className='text-cherry-600'>
                 {savingError}

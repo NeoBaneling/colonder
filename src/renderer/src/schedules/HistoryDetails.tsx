@@ -146,7 +146,7 @@ export const HistoryDetailsPage = () => {
       }
       return {
         staffId: person.id,
-        name: `${person.lastName} ${person.firstName.slice(0, 1)}.`,
+        name: `${person.firstName} ${person.lastName.slice(0, 1)}.`,
         role: person.role,
         employment: person.employment,
         status,
@@ -182,7 +182,9 @@ export const HistoryDetailsPage = () => {
     const person = segment.state.staffSnapshot.find(
       (member) => member.id === staffId,
     );
-    return person ? `${person.lastName} ${person.firstName.slice(0, 1)}.` : '';
+    return person
+      ? `${person.firstName} ${person.lastName.slice(0, 1)}.`
+      : '';
   };
   const onCallDepartmentFor = (staffId: number, date: string) => {
     const key = `${staffId}:${date}`;
@@ -328,6 +330,8 @@ export const HistoryDetailsPage = () => {
                   {weekGroups.flatMap((group, groupIndex) => [
                     ...group.dates.map((date) => {
                       const value = row.status[date] ?? '–';
+                      const printValue =
+                        value === 'P' || value === 'F' ? 'X' : value;
                       const onCallDepartment =
                         value === 'OC'
                           ? onCallDepartmentFor(row.staffId, date)
@@ -336,20 +340,18 @@ export const HistoryDetailsPage = () => {
                         <td
                           key={`${row.name}-${date}`}
                           className={`${printWeekClassName(groupIndex)} ${
-                            value === 'W'
+                            printValue === 'W'
                               ? 'schedule-pdf-work'
-                              : value === 'P'
+                              : printValue === 'X'
                                 ? 'schedule-pdf-pto'
-                                : value === 'F'
-                                  ? 'schedule-pdf-fmla'
-                                  : onCallDepartment === Dept.PACU
+                                : onCallDepartment === Dept.PACU
                                     ? 'schedule-pdf-oncall-pacu'
                                     : onCallDepartment === Dept.PROC
                                       ? 'schedule-pdf-oncall-proc'
                                       : ''
                           }`}
                         >
-                          {value}
+                          {printValue}
                         </td>
                       );
                     }),
@@ -386,7 +388,7 @@ export const HistoryDetailsPage = () => {
         </tfoot>
       </table>
       <div className="schedule-pdf-legend">
-        <span>W work · – off · P PTO · F FMLA</span>
+        <span>W work · – off · X PTO</span>
         <span><i className="schedule-pdf-legend-swatch schedule-pdf-legend-proc" />PROC Call</span>
         <span><i className="schedule-pdf-legend-swatch schedule-pdf-legend-pacu" />PACU Call</span>
         <span><i className="schedule-pdf-legend-swatch schedule-pdf-legend-weekend" />Weekend Call</span>

@@ -48,6 +48,8 @@ contextBridge.exposeInMainWorld('segments', {
     ipcRenderer.invoke('segments:update-confirmed', id, state),
   deleteDraft: (id: number): Promise<boolean> =>
     ipcRenderer.invoke('segments:delete-draft', id),
+  delete: (id: number): Promise<boolean> =>
+    ipcRenderer.invoke('segments:delete', id),
 });
 
 contextBridge.exposeInMainWorld('schedules', {

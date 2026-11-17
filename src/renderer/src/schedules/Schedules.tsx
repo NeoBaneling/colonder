@@ -20,7 +20,7 @@ const SchedulesPage = () => {
   const location = useLocation();
   const [segments, setSegments] = useState<ScheduleSegment[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [draftToDelete, setDraftToDelete] = useState<ScheduleSegment | null>(
+  const [scheduleToDelete, setScheduleToDelete] = useState<ScheduleSegment | null>(
     null,
   );
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -57,25 +57,28 @@ const SchedulesPage = () => {
     return () => window.clearTimeout(timeout);
   }, [location.state]);
 
-  const deleteDraft = async () => {
-    if (!draftToDelete) return;
+  const deleteSchedule = async () => {
+    if (!scheduleToDelete) return;
     try {
-      const deleted = await window.segments.deleteDraft(draftToDelete.id);
-      if (!deleted) throw new Error('This draft no longer exists.');
+      const deleted = await window.segments.delete(scheduleToDelete.id);
+      if (!deleted) throw new Error('This schedule no longer exists.');
       setSegments(
         (current) =>
-          current?.filter((segment) => segment.id !== draftToDelete.id) ?? [],
+          current?.filter((segment) => segment.id !== scheduleToDelete.id) ?? [],
       );
-      setDraftToDelete(null);
+      setScheduleToDelete(null);
       setDeleteError(null);
-      toast.success('Draft deleted', 'The schedule draft was removed.');
+      toast.success(
+        'Schedule deleted',
+        `The ${scheduleToDelete.status === 'draft' ? 'draft' : 'schedule'} was removed.`,
+      );
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
-          : 'Unable to delete schedule draft.';
+          : 'Unable to delete schedule.';
       setDeleteError(message);
-      toast.failure("Couldn't delete schedule draft", message);
+      toast.failure("Couldn't delete schedule", message);
     }
   };
 
@@ -142,8 +145,8 @@ const SchedulesPage = () => {
                     </td>
                     <td>{segment.state.staffSnapshot.length}</td>
                     <td className="w-24 min-w-24">
-                      {segment.status === 'draft' && (
-                        <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-2">
+                        {segment.status === 'draft' && (
                           <IconButton
                             ariaLabel="Resume schedule draft"
                             title="Resume schedule draft"
@@ -155,20 +158,28 @@ const SchedulesPage = () => {
                               navigate(`/new?draft=${segment.id}`);
                             }}
                           />
-                          <IconButton
-                            ariaLabel="Delete schedule draft"
-                            title="Delete schedule draft"
-                            icon="bi-trash"
-                            variant="outlined"
-                            className="h-8! w-8! rounded-full! border-0! text-cherry-600! hover:bg-cherry-600! hover:text-white!"
-                            onClick={(event) => {
-                              event?.stopPropagation?.();
-                              setDeleteError(null);
-                              setDraftToDelete(segment);
-                            }}
-                          />
-                        </div>
-                      )}
+                        )}
+                        <IconButton
+                          ariaLabel={
+                            segment.status === 'draft'
+                              ? 'Delete schedule draft'
+                              : 'Delete schedule'
+                          }
+                          title={
+                            segment.status === 'draft'
+                              ? 'Delete schedule draft'
+                              : 'Delete schedule'
+                          }
+                          icon="bi-trash"
+                          variant="outlined"
+                          className="h-8! w-8! rounded-full! border-0! text-cherry-600! hover:bg-cherry-600! hover:text-white!"
+                          onClick={(event) => {
+                            event?.stopPropagation?.();
+                            setDeleteError(null);
+                            setScheduleToDelete(segment);
+                          }}
+                        />
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -179,15 +190,24 @@ const SchedulesPage = () => {
       </PageContent>
 
       <Dialog
-        open={draftToDelete !== null}
-        title="Delete schedule draft?"
-        onCancel={() => setDraftToDelete(null)}
-        onConfirm={() => void deleteDraft()}
-        confirmLabel="Delete draft"
+        open={scheduleToDelete !== null}
+        title={
+          scheduleToDelete?.status === 'draft'
+            ? 'Delete schedule draft?'
+            : 'Delete schedule?'
+        }
+        onCancel={() => setScheduleToDelete(null)}
+        onConfirm={() => void deleteSchedule()}
+        confirmLabel={
+          scheduleToDelete?.status === 'draft' ? 'Delete draft' : 'Delete schedule'
+        }
         confirmVariant="danger"
       >
         <div className="flex flex-col gap-3">
-          <p>This draft and its input will be permanently removed.</p>
+          <p>
+            This {scheduleToDelete?.status === 'draft' ? 'draft' : 'schedule'} and
+            its input will be permanently removed.
+          </p>
           {deleteError && (
             <p role="alert" className="text-cherry-600">
               {deleteError}

@@ -496,7 +496,7 @@ export const WeeklyDetailPage = () => {
                               const personLabel = (
                                 <span className="weekly-assignment-person">
                                   <span>
-                                    {person.lastName} {person.firstName.slice(0, 1)}.
+                                    {person.firstName} {person.lastName.slice(0, 1)}.
                                   </span>
                                   {person.isLeader && (
                                     <span

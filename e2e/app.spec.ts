@@ -14,6 +14,74 @@ const launchApp = (userDataPath: string) =>
     },
   });
 
+  test('deletes a confirmed schedule after confirmation', async () => {
+    const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-delete-schedule-e2e-'));
+    const app = await launchApp(userDataPath);
+
+    try {
+      const page = await app.firstWindow();
+      await page.waitForLoadState('load');
+      await seedConfirmedSchedule(page, {
+        startDate: '2026-10-05',
+        endDate: '2026-11-13',
+        shiftDates: ['2026-10-05'],
+      });
+
+      await page.getByRole('link', { name: 'Schedules' }).click();
+      const row = page.locator('.list-table tbody tr');
+      await expect(row).toContainText('Confirmed');
+      await row.getByRole('button', { name: 'Delete schedule' }).click();
+      const dialog = page.getByRole('dialog', { name: 'Delete schedule?' });
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect
+        .poll(() => page.evaluate(() => window.segments.list()))
+        .toHaveLength(1);
+
+      await row.getByRole('button', { name: 'Delete schedule' }).click();
+      await page
+        .getByRole('dialog', { name: 'Delete schedule?' })
+        .getByRole('button', { name: 'Delete schedule' })
+        .click();
+      await expect(page.getByRole('heading', { name: 'No schedules yet' })).toBeVisible();
+      await expect
+        .poll(() => page.evaluate(() => window.segments.list()))
+        .toHaveLength(0);
+    } finally {
+      await app.close();
+      await rm(userDataPath, { recursive: true, force: true });
+    }
+  });
+
+  test('starts a fresh schedule at the FMLA step after editing history', async () => {
+    const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-edit-new-schedule-e2e-'));
+    const app = await launchApp(userDataPath);
+
+    try {
+      const page = await app.firstWindow();
+      await page.waitForLoadState('load');
+      await seedConfirmedSchedule(page, {
+        startDate: '2026-10-05',
+        endDate: '2026-11-13',
+        shiftDates: ['2026-10-05'],
+      });
+
+      await page.getByRole('link', { name: 'Schedules' }).click();
+      await page.locator('.list-table tbody tr').click();
+      await page.getByRole('button', { name: 'Edit schedule' }).click();
+      await expect(
+        page.getByRole('heading', { name: 'Edit schedule' }),
+      ).toBeVisible();
+
+      await page.getByRole('link', { name: 'Create Schedule' }).click();
+      await expect(page.getByRole('heading', { name: 'FMLA' })).toBeVisible();
+    } finally {
+      await app.close();
+      await rm(userDataPath, { recursive: true, force: true });
+    }
+  });
+
 type ConfirmedScheduleSeed = {
   startDate: string;
   endDate: string;
@@ -624,14 +692,14 @@ test('on-call mode applies department and weekend assignments for eligible staff
     const optionLabels = await weekendOptions.getByRole('option').allTextContents();
     expect(optionLabels).toEqual([
       'Assign nurse',
-      'Dual F.',
-      'Dual P.',
+      'Full D.',
+      'Part D.',
     ]);
     await expect(
-      weekendOptions.getByRole('option', { name: 'Friday P.' }),
+      weekendOptions.getByRole('option', { name: 'Pto F.' }),
     ).toHaveCount(0);
     await expect(
-      weekendOptions.getByRole('option', { name: 'Monday F.' }),
+      weekendOptions.getByRole('option', { name: 'Fmla M.' }),
     ).toHaveCount(0);
     await expect(
       weekendOptions.getByRole('option', { name: 'Rolled F.' }),
@@ -645,7 +713,7 @@ test('on-call mode applies department and weekend assignments for eligible staff
         ),
       )
       .toBe(true);
-    await weekendOptions.getByRole('option', { name: 'Dual P.' }).click();
+    await weekendOptions.getByRole('option', { name: 'Part D.' }).click();
     await expect(weekendPicker).toHaveCSS('background-color', 'rgb(11, 92, 86)');
 
     const dualCell = page
@@ -786,7 +854,7 @@ test('on-call mode applies department and weekend assignments for eligible staff
     ).toBeVisible();
     const fullTimeHistoryRow = page
       .locator('.history-details-grid tbody tr')
-      .filter({ hasText: 'Dual F.' });
+      .filter({ hasText: 'Full D.' });
     await expect(fullTimeHistoryRow.locator('td').first()).not.toHaveClass(
       /schedule-cell-oncall/,
     );
@@ -850,7 +918,7 @@ test('on-call mode applies department and weekend assignments for eligible staff
     await expect(
       page
         .locator('.schedule-pdf-grid tbody tr')
-        .filter({ hasText: 'Dual F.' })
+        .filter({ hasText: 'Full D.' })
         .locator('td')
         .first(),
     ).not.toHaveClass(/schedule-pdf-oncall/);
@@ -1473,10 +1541,7 @@ test('creates and confirms a six-week schedule', async () => {
     await expect(
       page.getByRole('heading', { name: 'Confirm schedule' }),
     ).toBeVisible();
-    await page.getByRole('dialog').locator('.toggle').click();
-    await expect(
-      page.getByRole('switch', { name: 'Acknowledge warnings' }),
-    ).toBeChecked();
+    await expect(page.getByRole('dialog')).not.toContainText(/warning/i);
     await page
       .getByRole('button', { name: 'Confirm schedule', exact: true })
       .click();
@@ -1488,8 +1553,34 @@ test('creates and confirms a six-week schedule', async () => {
     ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Print schedule' })).toBeVisible();
     await expect(
-      page.locator('.history-details-grid tbody span.schedule-cell-fmla'),
+      page.locator('.history-details-grid tbody .schedule-staff-label').first(),
+    ).toHaveText('Ada N.');
+    const fmlaHistoryRow = page
+      .locator('.history-details-grid tbody tr')
+      .filter({ hasText: 'Penny P.' });
+    await expect(
+      fmlaHistoryRow.locator('span.schedule-cell-fmla'),
     ).toHaveCount(2);
+    await expect(
+      fmlaHistoryRow.locator('span.schedule-cell-fmla').first(),
+    ).toHaveText('F');
+    await expect(
+      fmlaHistoryRow.locator('span.schedule-cell-pto'),
+    ).toHaveCount(0);
+    await expect(page.locator('.schedule-pdf-legend').first()).toContainText(
+      'X PTO',
+    );
+    await expect(page.locator('.schedule-pdf-legend').first()).not.toContainText(
+      'F FMLA',
+    );
+    const fmlaPrintRow = page
+      .locator('.schedule-pdf-grid tbody tr')
+      .filter({ hasText: 'Penny P.' })
+      .first();
+    await expect(fmlaPrintRow.locator('td.schedule-pdf-pto')).toHaveCount(2);
+    await expect(
+      fmlaPrintRow.locator('td.schedule-pdf-pto').first(),
+    ).toHaveText('X');
     await expect(
       page.getByRole('button', { name: 'Generate weekly schedule' }),
     ).toHaveCount(6);
@@ -1672,7 +1763,7 @@ test('creates a CSL and schedules CHARGE coverage', async () => {
       });
 
     await page.getByRole('button', { name: 'Confirm', exact: true }).click();
-    await page.getByRole('dialog').locator('.toggle').click();
+    await expect(page.getByRole('dialog')).not.toContainText(/warning/i);
     await page
       .getByRole('button', { name: 'Confirm schedule', exact: true })
       .click();
@@ -1940,7 +2031,7 @@ test('shows current schedules on the dashboard and opens both detail views', asy
     });
     await expect(invalidDropContent).toHaveAttribute(
       'data-tooltip',
-      "Ada Nurse can't work in PROC",
+      "Ada Nurse can't be assigned to PROC",
     );
     await expect(invalidDropContent).toHaveClass(/weekly-drop-not-allowed/);
     await expect(otherDayContent).not.toHaveAttribute('data-tooltip');
@@ -2117,10 +2208,10 @@ test('offers six-week generation when the next schedule is due', async () => {
 
   try {
     const page = await app.firstWindow();
-    await page.clock.install({ time: new Date('2026-10-21T12:00:00') });
+    await page.clock.install({ time: new Date('2026-10-15T12:00:00') });
     await seedConfirmedSchedule(page, {
       startDate: '2026-09-12',
-      endDate: '2026-10-23',
+      endDate: '2026-10-30',
       shiftDates: ['2026-10-21'],
     });
 
@@ -2132,8 +2223,8 @@ test('offers six-week generation when the next schedule is due', async () => {
       page.getByRole('button', { name: 'Create next six-week schedule' }),
     ).toBeVisible();
     await expect(
-      page.getByRole('button', { name: 'Generate next weekly schedule' }),
-    ).toHaveCount(0);
+      page.getByText('starts in 18 days'),
+    ).toBeVisible();
 
     await page
       .getByRole('button', { name: 'Create next six-week schedule' })
@@ -2145,7 +2236,7 @@ test('offers six-week generation when the next schedule is due', async () => {
     await page.getByRole('link', { name: 'Home' }).click();
     await expect(
       page.getByRole('button', { name: 'Create next six-week schedule' }),
-    ).toHaveCount(0);
+    ).toBeVisible();
   } finally {
     await app.close();
     await rm(userDataPath, { recursive: true, force: true });
