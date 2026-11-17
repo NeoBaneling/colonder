@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Emp, Role, type ScheduleSegment, type Staff } from '../../../types';
+import { Dept, Emp, Role, type ScheduleSegment, type Staff } from '../../../types';
 import {
   cellKey,
   dailyCounts,
@@ -282,6 +282,54 @@ describe('six-week schedule engine', () => {
       nurses: 0,
       techs: 0,
     });
+  });
+
+  it('respects preferred weekdays and prioritizes PROC coverage by role', () => {
+    const preferredDays = [false, true, true, true, true, false, false];
+    const preferredStaff = staffMember(1, Role.Nurse, Emp.FullTime, {
+      preferredWorkingDays: preferredDays,
+    });
+    const preferredShifts = generateSegmentShifts(
+      [preferredStaff],
+      dates.slice(0, 5),
+      [],
+      [],
+      startDate,
+      12,
+    );
+    expect(
+      preferredShifts
+        .filter((shift) => shift.kind === 'work')
+        .map((shift) => shift.date)
+        .sort(),
+    ).toEqual(dates.slice(0, 4));
+
+    const procStaff = [
+      ...Array.from({ length: 3 }, (_, index) =>
+        staffMember(index + 1, Role.Nurse, Emp.FullTime, {
+          departments: [Dept.PROC],
+        }),
+      ),
+      ...Array.from({ length: 3 }, (_, index) =>
+        staffMember(index + 4, Role.Tech, Emp.FullTime, {
+          departments: [Dept.PROC],
+        }),
+      ),
+    ];
+    const procShifts = generateSegmentShifts(
+      procStaff,
+      dates.slice(0, 5),
+      [],
+      [],
+      startDate,
+      12,
+      [],
+      2,
+    );
+    for (const date of dates.slice(0, 5)) {
+      expect(dailyCounts(date, procStaff, procShifts).nurses).toBeGreaterThanOrEqual(2);
+      expect(dailyCounts(date, procStaff, procShifts).techs).toBeGreaterThanOrEqual(2);
+    }
   });
 
   it('schedules CSLs by employment type, covers every workday when possible, and excludes them from targets', () => {

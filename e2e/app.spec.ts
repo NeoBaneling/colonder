@@ -2202,6 +2202,47 @@ test('prompts users with no staff to add their first staff member', async () => 
   }
 });
 
+test('saves staff preferred working days with employment-count validation', async () => {
+  const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-staff-days-e2e-'));
+  const app = await launchApp(userDataPath);
+
+  try {
+    const page = await app.firstWindow();
+    await page.waitForLoadState('load');
+    await page.getByRole('button', { name: 'Add staff' }).click();
+    await page.getByLabel('First name').fill('Ada');
+    await page.getByLabel('Last name').fill('Lovelace');
+    await page.getByLabel('Job title').fill('RN');
+    await page.getByRole('switch', { name: 'PROC' }).check({ force: true });
+
+    await page.getByRole('button', { name: 'Mon' }).click();
+    await page.getByRole('button', { name: 'Tue' }).click();
+    await page.getByRole('button', { name: 'Wed' }).click();
+    await expect(
+      page.getByRole('button', { name: 'Save', exact: true }),
+    ).toBeDisabled();
+    await page.getByRole('button', { name: 'Thu' }).click();
+    await expect(
+      page.getByRole('button', { name: 'Save', exact: true }),
+    ).toBeEnabled();
+    await page.getByRole('button', { name: 'Save', exact: true }).click();
+
+    await expect
+      .poll(() => page.evaluate(() => window.staff.list()))
+      .toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            firstName: 'Ada',
+            preferredWorkingDays: [false, true, true, true, true, false, false],
+          }),
+        ]),
+      );
+  } finally {
+    await app.close();
+    await rm(userDataPath, { recursive: true, force: true });
+  }
+});
+
 test('offers six-week generation when the next schedule is due', async () => {
   const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-next-six-week-e2e-'));
   const app = await launchApp(userDataPath);

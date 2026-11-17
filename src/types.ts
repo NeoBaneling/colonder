@@ -26,6 +26,7 @@ export interface Staff {
   departments: Dept[];
   /* format HH:MM */
   startTime: string;
+  preferredWorkingDays?: boolean[];
   isLeader: boolean;
   inOrientation: boolean;
   ipcIds: number[];

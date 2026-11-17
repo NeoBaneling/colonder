@@ -151,6 +151,7 @@ export const generateSegmentShifts = (
   startDate: string,
   seed: number,
   fmlaEntries: FmlaEntry[] = [],
+  procRooms = 0,
 ): SegmentShift[] => {
   const pto = new Set(ptoDates);
   const fmla = getFmlaCellKeys(fmlaEntries, dates);
@@ -200,7 +201,9 @@ export const generateSegmentShifts = (
       const availableDates = weekDates.filter(
         (date) =>
           !pto.has(cellKey(staffer.id, date)) &&
-          !fmla.has(cellKey(staffer.id, date)),
+          !fmla.has(cellKey(staffer.id, date)) &&
+          (!staffer.preferredWorkingDays?.some(Boolean) ||
+            staffer.preferredWorkingDays[dayOfWeek(date)]),
       );
 
       if (staffer.employment === Emp.PRN) {
@@ -258,6 +261,32 @@ export const generateSegmentShifts = (
 
       const selectedDates = [...availableDates]
         .sort((a, b) => {
+          if (
+            procRooms > 0 &&
+            staffer.departments.includes(Dept.PROC) &&
+            !staffer.inOrientation
+          ) {
+            const procRoleCount = (date: string) =>
+              shifts.filter((shift) => {
+                if (
+                  shift.date !== date ||
+                  shift.kind !== 'work' ||
+                  !shift.countsTowardTargets
+                ) {
+                  return false;
+                }
+                const person = staff.find(
+                  (member) => member.id === shift.staffId,
+                );
+                return (
+                  person?.role === staffer.role &&
+                  person.departments.includes(Dept.PROC) &&
+                  !person.inOrientation
+                );
+              }).length;
+            const procCountDiff = procRoleCount(a) - procRoleCount(b);
+            if (procCountDiff !== 0) return procCountDiff;
+          }
           const count = (date: string) =>
             shifts.filter(
               (shift) =>
@@ -400,6 +429,8 @@ export const validateSegment = (
         person.employment === Emp.FullTime ? 4 : 3;
       const available = weekDates.filter(
         (date) =>
+          (!person.preferredWorkingDays?.some(Boolean) ||
+            person.preferredWorkingDays[dayOfWeek(date)]) &&
           !shifts.some(
             (shift) =>
               shift.staffId === person.id &&

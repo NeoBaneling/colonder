@@ -8,18 +8,24 @@ import {
   getSegmentWeeks,
 } from './weekly';
 
-const staffMember = (id: number, departments: Dept[]): Staff => ({
+const staffMember = (
+  id: number,
+  departments: Dept[],
+  role = Role.Nurse,
+  overrides: Partial<Staff> = {},
+): Staff => ({
   id,
   firstName: `Staff${id}`,
   lastName: 'Member',
-  title: 'RN',
-  role: Role.Nurse,
+  title: role === Role.Tech ? 'Tech' : 'RN',
+  role,
   employment: Emp.FullTime,
   departments,
   startTime: '07:00',
   isLeader: false,
   inOrientation: false,
   ipcIds: [],
+  ...overrides,
 });
 
 const segment: ScheduleSegment = {
@@ -182,10 +188,20 @@ describe('weekly schedule generation', () => {
     });
   });
 
-  it('fills procedure rooms with two staff each when enough eligible staff are working', () => {
-    const procStaff = Array.from({ length: 8 }, (_, index) =>
-      staffMember(index + 1, [Dept.PROC]),
-    );
+  it('fills each procedure room with a nurse and tech, pairing orientation staff as extras', () => {
+    const procStaff = [
+      ...Array.from({ length: 3 }, (_, index) =>
+        staffMember(index + 1, [Dept.PROC]),
+      ),
+      ...Array.from({ length: 3 }, (_, index) =>
+        staffMember(index + 4, [Dept.PROC], Role.Tech),
+      ),
+      ...Array.from({ length: 3 }, (_, index) =>
+        staffMember(index + 7, [Dept.PROC], Role.Nurse, {
+          inOrientation: true,
+        }),
+      ),
+    ];
     const procSegment: ScheduleSegment = {
       ...segment,
       state: {
@@ -199,7 +215,7 @@ describe('weekly schedule generation', () => {
           staffId: person.id,
           date: '2026-10-05',
           kind: 'work',
-          countsTowardTargets: true,
+          countsTowardTargets: !person.inOrientation,
         })),
       },
     };
@@ -215,12 +231,26 @@ describe('weekly schedule generation', () => {
       }
     }
 
-    expect([...roomCounts.entries()]).toEqual([
-      [1, 3],
-      [2, 3],
-      [3, 2],
-    ]);
-    expect(new Set(assignments.map((assignment) => assignment.staffId)).size).toBe(8);
+    expect([...roomCounts.entries()]).toEqual([[1, 3], [2, 3], [3, 3]]);
+    expect(new Set(assignments.map((assignment) => assignment.staffId)).size).toBe(9);
+    for (const room of [1, 2, 3]) {
+      const members = assignments
+        .filter((assignment) => assignment.room === room)
+        .map((assignment) => procStaff.find((person) => person.id === assignment.staffId)!);
+      expect(members.filter((person) => person.role === Role.Nurse && !person.inOrientation)).toHaveLength(1);
+      expect(members.filter((person) => person.role === Role.Tech)).toHaveLength(1);
+      expect(members.filter((person) => person.inOrientation)).toHaveLength(1);
+      expect(
+        members.some(
+          (person) =>
+            person.inOrientation &&
+            members.some(
+              (buddy) =>
+                !buddy.inOrientation && buddy.role === person.role,
+            ),
+        ),
+      ).toBe(true);
+    }
   });
 
   it('assigns single-department staff first, fills PR rooms, then balances PREOP and PACU', () => {
@@ -259,7 +289,131 @@ describe('weekly schedule generation', () => {
     expect(byStaff.get(2)?.department).toBe(Dept.PACU);
     expect(byStaff.get(3)).toMatchObject({ department: Dept.PROC, room: 1 });
     expect(byStaff.get(4)).toMatchObject({ department: Dept.PROC, room: 2 });
-    expect(byStaff.get(5)?.department).toBe(Dept.PRE);
-    expect(byStaff.get(6)?.department).toBe(Dept.PACU);
+    expect(
+      new Set([byStaff.get(5)?.department, byStaff.get(6)?.department]),
+    ).toEqual(new Set([Dept.PRE, Dept.PACU]));
+  });
+
+  it('fits weekly department start-time goals without changing preferred times', () => {
+    const goalStaff = [
+      ...Array.from({ length: 3 }, (_, index) =>
+        staffMember(index + 1, [Dept.PRE], Role.Nurse, {
+          startTime: '06:00',
+        }),
+      ),
+      staffMember(4, [Dept.PRE], Role.Nurse, { startTime: '07:00' }),
+      staffMember(5, [Dept.PRE], Role.Tech, { startTime: '07:00' }),
+      ...Array.from({ length: 5 }, (_, index) =>
+        staffMember(index + 6, [Dept.PACU], Role.Nurse, {
+          startTime: '08:00',
+        }),
+      ),
+      staffMember(11, [Dept.PACU], Role.Tech, { startTime: '08:00' }),
+      staffMember(12, [Dept.PROC], Role.Nurse, { startTime: '07:00' }),
+      staffMember(13, [Dept.PROC], Role.Tech, { startTime: '07:00' }),
+      staffMember(14, [Dept.PROC], Role.Nurse, { startTime: '07:00' }),
+      staffMember(15, [Dept.PROC], Role.Tech, { startTime: '07:00' }),
+    ];
+    const goalSegment: ScheduleSegment = {
+      ...segment,
+      state: {
+        ...segment.state,
+        staffSnapshot: goalStaff,
+        settingsSnapshot: {
+          ...segment.state.settingsSnapshot,
+          procRooms: 2,
+        },
+        shifts: goalStaff.map((person) => ({
+          staffId: person.id,
+          date: '2026-10-05',
+          kind: 'work',
+          countsTowardTargets: true,
+        })),
+      },
+    };
+
+    const assignments = generateWeeklyAssignments(goalSegment, ['2026-10-05']);
+    const startsByDepartment = (department: Dept) =>
+      assignments
+        .filter((assignment) => assignment.department === department)
+        .map((assignment) => {
+          const person = goalStaff.find(
+            (member) => member.id === assignment.staffId,
+          )!;
+          expect(assignment.startTime).toBe(person.startTime);
+          return `${person.role}:${assignment.startTime}`;
+        })
+        .sort();
+
+    expect(startsByDepartment(Dept.PRE)).toEqual([
+      '0:06:00',
+      '0:06:00',
+      '0:06:00',
+      '0:07:00',
+      '1:07:00',
+    ]);
+    expect(startsByDepartment(Dept.PACU)).toEqual([
+      '0:08:00',
+      '0:08:00',
+      '0:08:00',
+      '0:08:00',
+      '0:08:00',
+      '1:08:00',
+    ]);
+    expect(
+      assignments.filter((assignment) => assignment.department === Dept.PROC),
+    ).toHaveLength(4);
+    for (const room of [1, 2]) {
+      expect(
+        assignments.filter(
+          (assignment) =>
+            assignment.department === Dept.PROC && assignment.room === room,
+        ),
+      ).toHaveLength(2);
+    }
+  });
+
+  it('places on-call staff in their selected department and honors preferred weekdays', () => {
+    const preferredStaff = staffMember(1, [Dept.PRE, Dept.PACU], Role.Nurse, {
+      preferredWorkingDays: [false, true, true, true, true, false, false],
+    });
+    const onCallSegment: ScheduleSegment = {
+      ...segment,
+      state: {
+        ...segment.state,
+        staffSnapshot: [preferredStaff],
+        shifts: [
+          {
+            staffId: preferredStaff.id,
+            date: '2026-10-05',
+            kind: 'work',
+            countsTowardTargets: true,
+          },
+          {
+            staffId: preferredStaff.id,
+            date: '2026-10-09',
+            kind: 'work',
+            countsTowardTargets: true,
+          },
+        ],
+        onCall: ['1:2026-10-05'],
+        onCallDepartments: { '1:2026-10-05': Dept.PACU },
+      },
+    };
+
+    expect(
+      generateWeeklyAssignments(onCallSegment, [
+        '2026-10-05',
+        '2026-10-09',
+      ]),
+    ).toEqual([
+      {
+        date: '2026-10-05',
+        staffId: 1,
+        department: Dept.PACU,
+        room: null,
+        startTime: '07:00',
+      },
+    ]);
   });
 });

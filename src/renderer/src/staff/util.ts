@@ -6,7 +6,11 @@ export type StaffFormData = Omit<Staff, 'id' | 'departments'> & {
   isProc: boolean;
   isPacu: boolean;
   isPreop: boolean;
+  preferredWorkingDays: boolean[];
 };
+
+const preferredDayCount = (employment: Emp): number | undefined =>
+  employment === Emp.FullTime ? 4 : employment === Emp.PartTime ? 3 : undefined;
 
 export const staffFormSchema = yup
   .object({
@@ -32,6 +36,24 @@ export const staffFormSchema = yup
         'Enter a valid time',
       )
       .required(),
+    preferredWorkingDays: yup
+      .array()
+      .of(yup.boolean().required())
+      .length(7)
+      .required()
+      .test(
+        'preferred-working-day-count',
+        'Select four days for full time or three days for part time, or leave none selected',
+        function (days) {
+          const selectedDays = days?.filter(Boolean).length ?? 0;
+          const requiredDays = preferredDayCount(this.parent.employment);
+          return (
+            selectedDays === 0 ||
+            requiredDays === undefined ||
+            selectedDays === requiredDays
+          );
+        },
+      ),
     isLeader: yup.boolean().required(),
     inOrientation: yup.boolean().required(),
     ipcIds: yup.array().of(yup.number().integer().required()).required(),
@@ -67,6 +89,8 @@ export const staffToForm = (staff: Staff): StaffFormData => {
 
   return {
     ...staff,
+    preferredWorkingDays:
+      staff.preferredWorkingDays ?? Array.from({ length: 7 }, () => false),
     isProc: depts.includes(Dept.PROC),
     isPacu: depts.includes(Dept.PACU),
     isPreop: depts.includes(Dept.PRE),
@@ -88,6 +112,9 @@ export const formToStaff = (form: StaffFormData): Omit<Staff, 'id'> => {
     employment: form.employment,
     departments,
     startTime: form.startTime,
+    ...(form.preferredWorkingDays.some(Boolean)
+      ? { preferredWorkingDays: form.preferredWorkingDays }
+      : {}),
     isLeader: form.isLeader,
     inOrientation: form.inOrientation,
     ipcIds: form.ipcIds,

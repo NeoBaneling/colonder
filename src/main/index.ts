@@ -32,6 +32,7 @@ type StaffRow = {
   employment: number;
   departments: string;
   startTime: string;
+  preferredWorkingDays: string;
   isLeader: number;
   inOrientation: number;
 };
@@ -68,6 +69,28 @@ const isWeeklyDepartment = (value: unknown): value is Dept | 'CHARGE' =>
 const isDepartments = (value: unknown): value is Dept[] =>
   Array.isArray(value) && value.every(isDepartment);
 
+const isPreferredWorkingDays = (
+  value: unknown,
+  employment: unknown,
+): value is boolean[] | undefined => {
+  if (value === undefined || (Array.isArray(value) && value.length === 0)) {
+    return true;
+  }
+  if (
+    !Array.isArray(value) ||
+    value.length !== 7 ||
+    !value.every((day) => typeof day === 'boolean')
+  ) {
+    return false;
+  }
+  const selectedDays = value.filter(Boolean).length;
+  if (selectedDays === 0 || employment === Emp.PRN) return true;
+  return (
+    (employment === Emp.FullTime && selectedDays === 4) ||
+    (employment === Emp.PartTime && selectedDays === 3)
+  );
+};
+
 function assertValidStaff(
   value: unknown,
 ): asserts value is Omit<Staff, 'id'> {
@@ -96,6 +119,7 @@ function assertValidStaff(
     new Set(staff.departments).size !== staff.departments.length ||
     (staff.role === Role.ChargeNurse && staff.departments.length !== 0) ||
     !timeIsValid ||
+    !isPreferredWorkingDays(staff.preferredWorkingDays, staff.employment) ||
     typeof staff.isLeader !== 'boolean' ||
     typeof staff.inOrientation !== 'boolean' ||
     !Array.isArray(staff.ipcIds) ||
@@ -111,6 +135,7 @@ const listStaff = (): Staff[] => {
     .prepare(
       `SELECT id, first_name AS firstName, last_name AS lastName, title,
               role, employment, departments, start_time AS startTime,
+              preferred_working_days AS preferredWorkingDays,
               is_leader AS isLeader, in_orientation AS inOrientation
        FROM staff ORDER BY id DESC`,
     )
@@ -130,8 +155,14 @@ const listStaff = (): Staff[] => {
 
   return rows.map((row) => {
     const departments: unknown = JSON.parse(row.departments);
+    const preferredWorkingDays: unknown = JSON.parse(row.preferredWorkingDays);
     if (!isDepartments(departments)) {
       throw new Error(`Stored departments are invalid for staff ${row.id}.`);
+    }
+    if (!isPreferredWorkingDays(preferredWorkingDays, row.employment)) {
+      throw new Error(
+        `Stored preferred working days are invalid for staff ${row.id}.`,
+      );
     }
 
     return {
@@ -139,6 +170,8 @@ const listStaff = (): Staff[] => {
       role: row.role as Role,
       employment: row.employment as Emp,
       departments,
+      preferredWorkingDays:
+        preferredWorkingDays?.some(Boolean) ? preferredWorkingDays : undefined,
       isLeader: Boolean(row.isLeader),
       inOrientation: Boolean(row.inOrientation),
       ipcIds: conflictsByStaffId.get(row.id) ?? [],
@@ -350,8 +383,8 @@ const saveStaff = (staff: Omit<Staff, 'id'>, id?: number): Staff => {
         .prepare(
           `INSERT INTO staff
             (first_name, last_name, title, role, employment, departments,
-             start_time, is_leader, in_orientation)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             start_time, preferred_working_days, is_leader, in_orientation)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           staff.firstName.trim(),
@@ -361,6 +394,7 @@ const saveStaff = (staff: Omit<Staff, 'id'>, id?: number): Staff => {
           staff.employment,
           JSON.stringify(staff.departments),
           staff.startTime,
+          JSON.stringify(staff.preferredWorkingDays ?? []),
           Number(staff.isLeader),
           Number(staff.inOrientation),
         );
@@ -376,7 +410,7 @@ const saveStaff = (staff: Omit<Staff, 'id'>, id?: number): Staff => {
           `UPDATE staff
            SET first_name = ?, last_name = ?, title = ?, role = ?,
                employment = ?, departments = ?, start_time = ?,
-               is_leader = ?, in_orientation = ?
+               preferred_working_days = ?, is_leader = ?, in_orientation = ?
            WHERE id = ?`,
         )
         .run(
@@ -387,6 +421,7 @@ const saveStaff = (staff: Omit<Staff, 'id'>, id?: number): Staff => {
           staff.employment,
           JSON.stringify(staff.departments),
           staff.startTime,
+          JSON.stringify(staff.preferredWorkingDays ?? []),
           Number(staff.isLeader),
           Number(staff.inOrientation),
           staffId,
@@ -515,7 +550,8 @@ app.whenReady().then(() => {
       departments TEXT NOT NULL DEFAULT '[]',
       start_time TEXT NOT NULL DEFAULT '07:00',
       is_leader INTEGER NOT NULL DEFAULT 0,
-      in_orientation INTEGER NOT NULL DEFAULT 0
+      in_orientation INTEGER NOT NULL DEFAULT 0,
+      preferred_working_days TEXT NOT NULL DEFAULT '[]'
     )
   `);
   const staffColumns = new Set(
@@ -531,6 +567,7 @@ app.whenReady().then(() => {
     ['start_time', "TEXT NOT NULL DEFAULT '07:00'"],
     ['is_leader', 'INTEGER NOT NULL DEFAULT 0'],
     ['in_orientation', 'INTEGER NOT NULL DEFAULT 0'],
+    ['preferred_working_days', "TEXT NOT NULL DEFAULT '[]'"],
   ] as const;
   for (const [column, definition] of staffMigrations) {
     if (!staffColumns.has(column)) {

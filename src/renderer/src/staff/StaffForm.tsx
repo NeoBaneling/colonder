@@ -9,6 +9,7 @@ import { Dialog } from '../layout/Dialog';
 import { PageContent } from '../layout/PageContent';
 import { useToast } from '../layout/Toast';
 import { IpcField } from './IpcField';
+import { DayControl } from '../settings/DayControl';
 import {
   formToStaff,
   staffFormSchema,
@@ -26,10 +27,13 @@ const emptyStaff: StaffFormData = {
   isPacu: false,
   isPreop: false,
   startTime: '07:00',
+  preferredWorkingDays: Array.from({ length: 7 }, () => false),
   isLeader: false,
   inOrientation: false,
   ipcIds: [],
 };
+
+const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export const StaffForm = () => {
   const { staffId } = useParams();
@@ -346,6 +350,40 @@ export const StaffForm = () => {
                           : ' '}
                       </p>
                     </div>
+                  </div>
+                  <div className='flex flex-col gap-2'>
+                    <label>Preferred working days (optional)</label>
+                    <div className='flex flex-row gap-2'>
+                      {values.preferredWorkingDays.map((day, index) => (
+                        <DayControl
+                          key={days[index]}
+                          index={index}
+                          name={days[index]}
+                          value={day}
+                          fieldName='preferredWorkingDays'
+                          validateOnChange
+                        />
+                      ))}
+                    </div>
+                    <p
+                      className='min-h-4 text-xs text-cherry-600'
+                      role={
+                        touched.preferredWorkingDays &&
+                        errors.preferredWorkingDays
+                          ? 'alert'
+                          : undefined
+                      }
+                      aria-live='polite'
+                    >
+                      {touched.preferredWorkingDays &&
+                      typeof errors.preferredWorkingDays === 'string'
+                        ? errors.preferredWorkingDays
+                        : values.employment === Emp.FullTime
+                          ? 'Select four days, or leave none selected.'
+                          : values.employment === Emp.PartTime
+                            ? 'Select three days, or leave none selected.'
+                            : ' '}
+                    </p>
                   </div>
                   <IpcField staffNames={staffNames} />
                   {typeof status === 'string' && (
