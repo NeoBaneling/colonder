@@ -1,5 +1,11 @@
-import { Dept, Emp, type SegmentShift, type Staff } from '../../../types';
-import { cellKey, weekIndex } from './engine';
+import {
+  Dept,
+  Emp,
+  type FmlaEntry,
+  type SegmentShift,
+  type Staff,
+} from '../../../types';
+import { addDays, cellKey, dayOfWeek, weekIndex } from './engine';
 
 export type WeekendOnCall = {
   weekStart: string;
@@ -23,6 +29,68 @@ export const isWeekendOnCallEligible = (person: Staff): boolean =>
   person.departments.includes(Dept.PACU) &&
   person.departments.includes(Dept.PROC);
 
+const isOnFmla = (
+  staffId: number,
+  shifts: SegmentShift[],
+  fmlaEntries: FmlaEntry[],
+) =>
+  fmlaEntries.some((entry) => entry.staffId === staffId && entry.onFmla) ||
+  shifts.some((shift) => shift.staffId === staffId && shift.kind === 'fmla');
+
+export const hasWeekendBoundaryLeave = (
+  staffId: number,
+  weekStart: string,
+  shifts: SegmentShift[],
+  ptoDates: string[] = [],
+  fmlaEntries: FmlaEntry[] = [],
+): boolean => {
+  const fridayOffset = (5 - dayOfWeek(weekStart) + 7) % 7;
+  const friday = addDays(weekStart, fridayOffset);
+  const monday = addDays(friday, 3);
+  const boundaryDates = new Set([friday, monday]);
+
+  return (
+    shifts.some(
+      (shift) =>
+        shift.staffId === staffId &&
+        boundaryDates.has(shift.date) &&
+        (shift.kind === 'pto' ||
+          shift.kind === 'fmla'),
+    ) ||
+    [...boundaryDates].some((date) => ptoDates.includes(cellKey(staffId, date))) ||
+    fmlaEntries.some(
+      (entry) =>
+        entry.staffId === staffId &&
+        entry.onFmla &&
+        [...boundaryDates].some(
+          (date) =>
+            (entry.startDate === null || date >= entry.startDate) &&
+            (entry.endDate === null || date <= entry.endDate),
+        ),
+    )
+  );
+};
+
+export const getWeekendOnCallEligibleStaff = (
+  staff: Staff[],
+  weekStart: string,
+  shifts: SegmentShift[],
+  ptoDates: string[] = [],
+  fmlaEntries: FmlaEntry[] = [],
+): Staff[] =>
+  staff.filter(
+    (person) =>
+      isWeekendOnCallEligible(person) &&
+      !isOnFmla(person.id, shifts, fmlaEntries) &&
+      !hasWeekendBoundaryLeave(
+        person.id,
+        weekStart,
+        shifts,
+        ptoDates,
+        fmlaEntries,
+      ),
+  );
+
 export const onCallTarget = (employment: Emp): number =>
   employment === Emp.FullTime ? 5 : employment === Emp.PartTime ? 3 : 0;
 
@@ -31,6 +99,8 @@ export const getAutoOnCallSchedule = (
   dates: string[],
   shifts: SegmentShift[],
   startDate: string,
+  ptoDates: string[] = [],
+  fmlaEntries: FmlaEntry[] = [],
 ): AutoOnCallSchedule => {
   const groupedDates = new Map<number, string[]>();
   for (const date of dates) {
@@ -46,7 +116,11 @@ export const getAutoOnCallSchedule = (
   const onCall: string[] = [];
   const onCallDepartments: Record<string, Dept> = {};
   const orderedStaff = [...staff]
-    .filter(isOnCallEligible)
+    .filter(
+      (person) =>
+        isOnCallEligible(person) &&
+        !isOnFmla(person.id, shifts, fmlaEntries),
+    )
     .sort((a, b) => a.id - b.id);
   const targets = new Map(
     orderedStaff.map((person) => [person.id, onCallTarget(person.employment)]),
@@ -54,10 +128,15 @@ export const getAutoOnCallSchedule = (
   const datesByPerson = new Map<number, Set<string>>();
   const weeksByPerson = new Map<number, Set<number>>();
   const departmentCounts = new Map<number, Record<Dept.PACU | Dept.PROC, number>>();
-  const weekendStaff = orderedStaff.filter(isWeekendOnCallEligible);
   const weekendCounts = new Map<number, number>();
   const weekendOnCall = weeks.map((weekDates, index) => {
-    const availableStaff = weekendStaff
+    const availableStaff = getWeekendOnCallEligibleStaff(
+      orderedStaff,
+      weekDates[0],
+      shifts,
+      ptoDates,
+      fmlaEntries,
+    )
       .filter(
         (person) =>
             (weekendCounts.get(person.id) ?? 0) +

@@ -454,6 +454,42 @@ test('on-call mode applies department and weekend assignments for eligible staff
           inOrientation: false,
           ipcIds: [],
         }),
+        window.staff.create({
+          firstName: 'Pto',
+          lastName: 'Friday',
+          title: 'RN',
+          role: 0,
+          employment: 0,
+          departments: [0, 1],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
+        window.staff.create({
+          firstName: 'Fmla',
+          lastName: 'Monday',
+          title: 'RN',
+          role: 0,
+          employment: 0,
+          departments: [0, 1],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
+        window.staff.create({
+          firstName: 'Rolled',
+          lastName: 'Fmla',
+          title: 'RN',
+          role: 0,
+          employment: 0,
+          departments: [0, 1],
+          startTime: '07:00',
+          isLeader: false,
+          inOrientation: false,
+          ipcIds: [],
+        }),
       ]);
       const settings = await window.settings.get();
       const startDate = '2026-10-05';
@@ -466,7 +502,22 @@ test('on-call mode applies department and weekend assignments for eligible staff
         step: 'review' as const,
         startDate,
         endDate: '2026-11-13',
-        fmlaEntries: [],
+        fmlaEntries: [
+          {
+            staffId: people.find((person) => person.firstName === 'Fmla')!.id,
+            onFmla: true,
+            startDate: dates[5],
+            endDate: dates[6],
+            rolledOver: false,
+          },
+          {
+            staffId: people.find((person) => person.firstName === 'Rolled')!.id,
+            onFmla: true,
+            startDate: '2026-09-01',
+            endDate: null,
+            rolledOver: true,
+          },
+        ],
         ptoDates: [],
         prnDates: [],
         shifts: people.flatMap((person) =>
@@ -476,10 +527,17 @@ test('on-call mode applies department and weekend assignments for eligible staff
                 !(person.firstName === 'Full' && date === dates[0]),
             )
             .map((date) => ({
-            staffId: person.id,
-            date,
-            kind: 'work' as const,
-            countsTowardTargets: true,
+              staffId: person.id,
+              date,
+              kind:
+                person.firstName === 'Rolled'
+                  ? 'fmla' as const
+                  : person.firstName === 'Pto' && date === dates[4]
+                  ? 'pto' as const
+                  : person.firstName === 'Fmla' && date === dates[5]
+                    ? 'fmla' as const
+                    : 'work' as const,
+              countsTowardTargets: true,
             })),
         ),
         onCall: [],
@@ -534,6 +592,29 @@ test('on-call mode applies department and weekend assignments for eligible staff
         }),
       )
       .toEqual({ fullTime: 5, partTime: 3, weekend: 6 });
+    await expect
+      .poll(() =>
+        page.evaluate(async () => {
+          const draft = (await window.segments.list())[0];
+          const staffId = (firstName: string) =>
+            draft?.state.staffSnapshot.find(
+              (person) => person.firstName === firstName,
+            )?.id;
+          const weekends = draft?.state.weekendOnCall ?? [];
+          const firstWeekend = weekends.find(
+            (assignment) => assignment.weekStart === '2026-10-05',
+          );
+          return (
+            firstWeekend?.staffId !== staffId('Pto') &&
+            firstWeekend?.staffId !== staffId('Fmla') &&
+            !weekends.some(
+              (assignment) =>
+                assignment.staffId === staffId('Rolled'),
+            )
+          );
+        }),
+      )
+      .toBe(true);
 
     const weekendPicker = page.getByRole('button', { name: 'Weekend OC Week 1' });
     await weekendPicker.click();
@@ -541,7 +622,20 @@ test('on-call mode applies department and weekend assignments for eligible staff
       name: 'Eligible staff for Weekend OC Week 1',
     });
     const optionLabels = await weekendOptions.getByRole('option').allTextContents();
-    expect(optionLabels).toEqual(['Assign nurse', 'Dual F.', 'Dual P.']);
+    expect(optionLabels).toEqual([
+      'Assign nurse',
+      'Dual F.',
+      'Dual P.',
+    ]);
+    await expect(
+      weekendOptions.getByRole('option', { name: 'Friday P.' }),
+    ).toHaveCount(0);
+    await expect(
+      weekendOptions.getByRole('option', { name: 'Monday F.' }),
+    ).toHaveCount(0);
+    await expect(
+      weekendOptions.getByRole('option', { name: 'Rolled F.' }),
+    ).toHaveCount(0);
     await expect
       .poll(() =>
         weekendOptions.evaluate(
@@ -954,7 +1048,7 @@ test('creates, edits, reloads, and deletes staff in SQLite', async () => {
 });
 
 test('creates and confirms a six-week schedule', async () => {
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
   const userDataPath = await mkdtemp(join(tmpdir(), 'colonder-schedule-e2e-'));
   const app = await launchApp(userDataPath);
 
@@ -996,10 +1090,24 @@ test('creates and confirms a six-week schedule', async () => {
     ).toBeVisible();
     await expect(page.getByRole('heading', { name: 'FMLA' })).toBeVisible();
     await expect(page.getByText('0 on FMLA')).toBeVisible();
+    const fmlaColumnWidths = await page
+      .locator('.fmla-table thead th')
+      .evaluateAll((cells) =>
+        cells.map((cell) => Math.round(cell.getBoundingClientRect().width)),
+      );
     const fmlaToggle = page.getByRole('switch', {
       name: 'On FMLA for Penny Prn',
     });
     await fmlaToggle.locator('..').click();
+    await expect
+      .poll(() =>
+        page
+          .locator('.fmla-table thead th')
+          .evaluateAll((cells) =>
+            cells.map((cell) => Math.round(cell.getBoundingClientRect().width)),
+          ),
+      )
+      .toEqual(fmlaColumnWidths);
     await expect
       .poll(() =>
         page.evaluate(async () => (await window.segments.list())[0]?.state.startDate),
@@ -1013,15 +1121,110 @@ test('creates and confirms a six-week schedule', async () => {
       value.setUTCDate(value.getUTCDate() + days);
       return value.toISOString().slice(0, 10);
     };
-    const fmlaStart = page.getByLabel('Start date for Penny Prn');
-    const fmlaEnd = page.getByLabel('End date for Penny Prn');
-    await fmlaStart.fill(segmentStart);
-    await fmlaEnd.fill(addDate(segmentStart, -1));
+    const chooseDate = async (label: string, value: string) => {
+      await page.getByLabel(label).click();
+      const dialog = page.getByRole('dialog', { name: `${label} calendar` });
+      const selectedDate = new Intl.DateTimeFormat('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        timeZone: 'UTC',
+      }).format(new Date(`${value}T00:00:00.000Z`));
+      const visibleMonth = new Date(`${segmentStart}T00:00:00.000Z`);
+      const selectedMonth = new Date(`${value}T00:00:00.000Z`);
+      if (selectedMonth < new Date(Date.UTC(
+        visibleMonth.getUTCFullYear(),
+        visibleMonth.getUTCMonth(),
+        1,
+      ))) {
+        await dialog.getByRole('button', { name: 'Previous month' }).click();
+      } else if (
+        selectedMonth.getUTCFullYear() > visibleMonth.getUTCFullYear() ||
+        (selectedMonth.getUTCFullYear() === visibleMonth.getUTCFullYear() &&
+          selectedMonth.getUTCMonth() > visibleMonth.getUTCMonth())
+      ) {
+        await dialog.getByRole('button', { name: 'Next month' }).click();
+      }
+      await dialog.getByRole('gridcell', { name: selectedDate }).click();
+      return dialog;
+    };
+    const startCalendar = await chooseDate(
+      'Start date for Penny Prn',
+      segmentStart,
+    );
+    const outsideStartDate = addDate(segmentStart, -1);
+    await expect(
+      startCalendar.getByRole('gridcell', {
+        name: new Intl.DateTimeFormat('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+          timeZone: 'UTC',
+        }).format(new Date(`${outsideStartDate}T00:00:00.000Z`)),
+      }),
+    ).toBeDisabled();
+    await startCalendar.getByRole('button', { name: 'Done' }).click();
+    await expect
+      .poll(() =>
+        page.evaluate(async () =>
+          (await window.segments.list())[0]?.state.fmlaEntries,
+        ),
+      )
+      .toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ startDate: segmentStart }),
+        ]),
+      );
+    await page.getByLabel('End date for Penny Prn').click();
+    const endCalendar = page.getByRole('dialog', {
+      name: 'End date for Penny Prn calendar',
+    });
+    const outsideDate = addDate(segmentStart, -1);
+    await expect(
+      endCalendar.getByRole('gridcell', {
+        name: new Intl.DateTimeFormat('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+          timeZone: 'UTC',
+        }).format(new Date(`${outsideDate}T00:00:00.000Z`)),
+      }),
+    ).toBeDisabled();
+    await endCalendar
+      .getByRole('gridcell', {
+        name: new Intl.DateTimeFormat('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+          timeZone: 'UTC',
+        }).format(new Date(`${segmentStart}T00:00:00.000Z`)),
+      })
+      .click();
+    await endCalendar.getByRole('button', { name: 'Done' }).click();
     await expect(
       page.getByText('End date must be after start date'),
     ).toBeVisible();
     await expect(page.getByRole('button', { name: 'Continue' })).toBeDisabled();
-    await fmlaEnd.fill(addDate(segmentStart, 1));
+    const validEnd = addDate(segmentStart, 1);
+    const validEndCalendar = await chooseDate(
+      'End date for Penny Prn',
+      validEnd,
+    );
+    await expect
+      .poll(() =>
+        validEndCalendar
+          .getByRole('gridcell', {
+            name: new Intl.DateTimeFormat('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+              timeZone: 'UTC',
+            }).format(new Date(`${segmentStart}T00:00:00.000Z`)),
+          })
+          .evaluate((day) => getComputedStyle(day).backgroundColor),
+      )
+      .toBe('rgb(232, 228, 248)');
+    await validEndCalendar.getByRole('button', { name: 'Done' }).click();
     await expect(page.getByRole('button', { name: 'Continue' })).toBeEnabled();
     await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page.getByRole('heading', { name: /PTO calendar/ })).toBeVisible();

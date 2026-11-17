@@ -24,6 +24,7 @@ import {
   type Staff,
 } from '../../../types';
 import { Button } from '../inputs/Button';
+import { DatePicker } from '../inputs/DatePicker';
 import { IconButton } from '../inputs/IconButton';
 import { Dialog } from '../layout/Dialog';
 import { PageContent } from '../layout/PageContent';
@@ -45,7 +46,9 @@ import {
   weekIndex,
 } from './engine';
 import {
+  getWeekendOnCallEligibleStaff,
   getAutoOnCallSchedule,
+  hasWeekendBoundaryLeave,
   isOnCallEligible,
   isWeekendOnCallEligible,
   onCallTarget,
@@ -818,9 +821,22 @@ const GeneratorPage = () => {
       const ptoDates = new Set(current.ptoDates);
       if (value) ptoDates.add(key);
       else ptoDates.delete(key);
+      const weekendOnCall = (current.weekendOnCall ?? []).map((assignment) =>
+        assignment.staffId !== null &&
+        hasWeekendBoundaryLeave(
+          assignment.staffId,
+          assignment.weekStart,
+          current.shifts,
+          [...ptoDates],
+          current.fmlaEntries,
+        )
+          ? { ...assignment, staffId: null }
+          : assignment,
+      );
       return {
         ...current,
         ptoDates: [...ptoDates],
+        weekendOnCall,
         hasManualEdits: true,
       };
     });
@@ -934,7 +950,53 @@ const GeneratorPage = () => {
       dates,
       state.shifts,
       state.startDate,
+      state.ptoDates,
+      state.fmlaEntries,
     );
+    const fmlaShiftDates = state.shifts
+      .filter((shift) => shift.kind === 'fmla')
+      .map((shift) => ({ staffId: shift.staffId, date: shift.date }));
+    const fmlaStaffIds = new Set([
+      ...state.fmlaEntries
+        .filter((entry) => entry.onFmla)
+        .map((entry) => entry.staffId),
+      ...fmlaShiftDates.map((shift) => shift.staffId),
+    ]);
+    const assignedFmlaStaffIds = assignments.weekendOnCall
+      .filter(
+        (assignment) =>
+          assignment.staffId !== null && fmlaStaffIds.has(assignment.staffId),
+      )
+      .map((assignment) => assignment.staffId);
+
+    console.info('[on-call] Auto-apply generation', {
+      startDate: state.startDate,
+      endDate: state.endDate,
+      activeFmlaEntries: state.fmlaEntries.filter((entry) => entry.onFmla),
+      fmlaShiftDates,
+      fmlaStaff: state.staffSnapshot
+        .filter((person) => fmlaStaffIds.has(person.id))
+        .map((person) => ({
+          staffId: person.id,
+          name: `${person.firstName} ${person.lastName}`,
+          rolledOver: state.fmlaEntries.some(
+            (entry) =>
+              entry.staffId === person.id &&
+              entry.onFmla &&
+              entry.rolledOver,
+          ),
+        })),
+      generatedWeekdayOnCall: assignments.onCall,
+      generatedWeekendOnCall: assignments.weekendOnCall,
+      generatedWeekendAssignmentsToFmlaStaff: assignedFmlaStaffIds,
+    });
+    if (assignedFmlaStaffIds.length > 0) {
+      console.warn(
+        '[on-call] Auto-apply assigned weekend OC to active FMLA staff.',
+        assignedFmlaStaffIds,
+      );
+    }
+
     updateOnCall(
       assignments.onCall,
       assignments.onCallDepartments,
@@ -1314,6 +1376,13 @@ const GeneratorPage = () => {
               </div>
               <div className='fmla-table-scroll'>
                 <table className='fmla-table'>
+                  <colgroup>
+                    <col className='fmla-staff-column' />
+                    <col className='fmla-toggle-column' />
+                    <col className='fmla-date-column' />
+                    <col className='fmla-date-column' />
+                    <col className='fmla-applies-column' />
+                  </colgroup>
                   <thead>
                     <tr>
                       <th scope='col'>Staff</th>
@@ -1383,66 +1452,84 @@ const GeneratorPage = () => {
                             </label>
                           </td>
                           <td>
-                            {isOnFmla && entry?.rolledOver ? (
-                              <span className='fmla-locked-date'>
-                                <input
-                                  type='text'
-                                  value={`Since ${formatDate(entry.startDate ?? state.startDate)}`}
-                                  aria-label={`Start date for ${person.firstName} ${person.lastName}`}
-                                  disabled
-                                />
-                                <i
-                                  className='bi bi-lock-fill'
-                                  aria-hidden='true'
-                                />
-                              </span>
-                            ) : isOnFmla ? (
-                              <input
-                                type='date'
-                                aria-label={`Start date for ${person.firstName} ${person.lastName}`}
-                                value={entry?.startDate ?? ''}
-                                onChange={(event) =>
-                                  updateFmlaDate(
-                                    person.id,
-                                    'startDate',
-                                    event.currentTarget.value,
-                                  )
-                                }
-                              />
-                            ) : null}
-                          </td>
-                          <td>
-                            {isOnFmla && (
-                              <>
-                                <input
-                                  type='date'
-                                  aria-label={`End date for ${person.firstName} ${person.lastName}`}
-                                  aria-invalid={invalidRange}
-                                  aria-describedby={
-                                    invalidRange
-                                      ? `fmla-error-${person.id}`
-                                      : undefined
-                                  }
-                                  value={entry?.endDate ?? ''}
-                                  onChange={(event) =>
+                            <div
+                              className={`fmla-date-slot ${isOnFmla ? '' : 'is-hidden'}`}
+                              aria-hidden={!isOnFmla}
+                            >
+                              {entry?.rolledOver && isOnFmla ? (
+                                <span className='fmla-locked-date'>
+                                  <input
+                                    type='text'
+                                    value={`Since ${formatDate(entry.startDate ?? state.startDate)}`}
+                                    aria-label={`Start date for ${person.firstName} ${person.lastName}`}
+                                    disabled
+                                  />
+                                  <i
+                                    className='bi bi-lock-fill'
+                                    aria-hidden='true'
+                                  />
+                                </span>
+                              ) : (
+                                <DatePicker
+                                  label={`Start date for ${person.firstName} ${person.lastName}`}
+                                  value={entry?.startDate ?? null}
+                                  scheduleStart={state.startDate}
+                                  scheduleEnd={state.endDate}
+                                  minDate={state.startDate}
+                                  maxDate={state.endDate}
+                                  rangeStart={entry?.startDate ?? state.startDate}
+                                  rangeEnd={entry?.endDate ?? null}
+                                  onChange={(value) =>
                                     updateFmlaDate(
                                       person.id,
-                                      'endDate',
-                                      event.currentTarget.value,
+                                      'startDate',
+                                      value ?? '',
                                     )
                                   }
                                 />
-                                {invalidRange && (
-                                  <span
-                                    id={`fmla-error-${person.id}`}
-                                    className='fmla-date-error'
-                                    role='alert'
-                                  >
-                                    End date must be after start date
-                                  </span>
-                                )}
-                              </>
-                            )}
+                              )}
+                            </div>
+                          </td>
+                          <td>
+                            <div
+                              className={`fmla-date-slot ${isOnFmla ? '' : 'is-hidden'}`}
+                              aria-hidden={!isOnFmla}
+                            >
+                              <DatePicker
+                                label={`End date for ${person.firstName} ${person.lastName}`}
+                                value={entry?.endDate ?? null}
+                                scheduleStart={state.startDate}
+                                scheduleEnd={state.endDate}
+                                minDate={state.startDate}
+                                maxDate={state.endDate}
+                                rangeStart={
+                                  entry?.startDate ?? state.startDate
+                                }
+                                rangeEnd={entry?.endDate ?? null}
+                                invalid={invalidRange}
+                                describedBy={
+                                  invalidRange
+                                    ? `fmla-error-${person.id}`
+                                    : undefined
+                                }
+                                onChange={(value) =>
+                                  updateFmlaDate(
+                                    person.id,
+                                    'endDate',
+                                    value ?? '',
+                                  )
+                                }
+                              />
+                              <span
+                                id={`fmla-error-${person.id}`}
+                                className='fmla-date-error'
+                                role={invalidRange ? 'alert' : undefined}
+                              >
+                                {invalidRange
+                                  ? 'End date must be after start date'
+                                  : ' '}
+                              </span>
+                            </div>
                           </td>
                           <td className='fmla-applies'>{appliesTo}</td>
                         </tr>
@@ -2085,10 +2172,18 @@ const GeneratorPage = () => {
                           Weekend OC
                         </th>
                         {weekGroups(dates, state.startDate).map((group) => {
+                          const eligibleWeekendStaff =
+                            getWeekendOnCallEligibleStaff(
+                              weekendOnCallStaff,
+                              group.dates[0],
+                              state.shifts,
+                              state.ptoDates,
+                              state.fmlaEntries,
+                            );
                           const assignment = (state.weekendOnCall ?? []).find(
                             (entry) => entry.weekStart === group.dates[0],
                           );
-                          const assignedStaff = weekendOnCallStaff.find(
+                          const assignedStaff = eligibleWeekendStaff.find(
                             (person) => person.id === assignment?.staffId,
                           );
                           return (
@@ -2104,7 +2199,7 @@ const GeneratorPage = () => {
                                   className='schedule-weekend-select'
                                   disabled={
                                     !onCallMode ||
-                                    weekendOnCallStaff.length === 0
+                                    eligibleWeekendStaff.length === 0
                                   }
                                   onClick={() =>
                                     setWeekendPopupWeek((current) =>
@@ -2141,7 +2236,7 @@ const GeneratorPage = () => {
                                     >
                                       Assign nurse
                                     </button>
-                                    {weekendOnCallStaff.map((person) => (
+                                    {eligibleWeekendStaff.map((person) => (
                                       <button
                                         type='button'
                                         role='option'

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { Dept, Emp, Role, type SegmentShift, type Staff } from '../../../types';
 import { getSegmentDates } from './engine';
 import {
+  getWeekendOnCallEligibleStaff,
   getAutoOnCallSchedule,
+  hasWeekendBoundaryLeave,
   isOnCallEligible,
   isWeekendOnCallEligible,
   onCallTarget,
@@ -123,6 +125,161 @@ describe('on-call schedule helpers', () => {
     expect(weekendAssignments * 2 + weekdayAssignments).toBe(
       onCallTarget(Emp.PartTime),
     );
+  });
+
+  it('excludes staff with PTO or FMLA on a weekend boundary from auto weekend assignments', () => {
+    const person = staffMember(
+      1,
+      Emp.FullTime,
+      [Dept.PACU, Dept.PROC],
+    );
+    const shifts = shiftsFor([person]).map((shift) =>
+      shift.date === dates[4]
+        ? { ...shift, kind: 'pto' as const }
+        : shift.date === dates[10]
+          ? { ...shift, kind: 'fmla' as const }
+          : shift,
+    );
+    const assignments = getAutoOnCallSchedule(
+      [person],
+      dates,
+      shifts,
+      startDate,
+    );
+
+    expect(
+      assignments.weekendOnCall.find((entry) => entry.weekStart === dates[0])
+        ?.staffId,
+    ).toBeNull();
+    expect(
+      assignments.weekendOnCall.find((entry) => entry.weekStart === dates[5])
+        ?.staffId,
+    ).toBeNull();
+  });
+
+  it('excludes a fully rolled-over FMLA employee from all OC assignments', () => {
+    const person = staffMember(
+      1,
+      Emp.FullTime,
+      [Dept.PACU, Dept.PROC],
+    );
+    const fmlaEntries = [{
+      staffId: person.id,
+      onFmla: true,
+      startDate: '2026-09-01',
+      endDate: null,
+      rolledOver: true,
+    }];
+    const fmlaShifts: SegmentShift[] = dates.map((date) => ({
+      staffId: person.id,
+      date,
+      kind: 'fmla',
+      countsTowardTargets: false,
+    }));
+    const assignments = getAutoOnCallSchedule(
+      [person],
+      dates,
+      fmlaShifts,
+      startDate,
+      [],
+      fmlaEntries,
+    );
+
+    expect(
+      assignments.weekendOnCall.every(
+        (assignment) => assignment.staffId !== person.id,
+      ),
+    ).toBe(true);
+    expect(assignments.onCall).toEqual([]);
+    expect(
+      getWeekendOnCallEligibleStaff(
+        [person],
+        dates[0],
+        fmlaShifts,
+        [],
+        fmlaEntries,
+      ),
+    ).toEqual([]);
+  });
+
+  it('excludes newly started FMLA staff from all on-call assignments', () => {
+    const person = staffMember(
+      1,
+      Emp.FullTime,
+      [Dept.PACU, Dept.PROC],
+    );
+    const assignments = getAutoOnCallSchedule(
+      [person],
+      dates,
+      shiftsFor([person]),
+      startDate,
+      [],
+      [{
+        staffId: person.id,
+        onFmla: true,
+        startDate: dates[0],
+        endDate: null,
+        rolledOver: false,
+      }],
+    );
+
+    expect(assignments.onCall).toEqual([]);
+    expect(
+      assignments.weekendOnCall.every(
+        (assignment) => assignment.staffId === null,
+      ),
+    ).toBe(true);
+  });
+
+  it('filters weekend picker staff with leave on either adjacent Friday or Monday', () => {
+    const ptoPerson = staffMember(
+      1,
+      Emp.FullTime,
+      [Dept.PACU, Dept.PROC],
+    );
+    const fmlaPerson = staffMember(
+      2,
+      Emp.FullTime,
+      [Dept.PACU, Dept.PROC],
+    );
+    const staff = [ptoPerson, fmlaPerson];
+    const shifts = shiftsFor(staff);
+    const ptoDates = [`${ptoPerson.id}:${dates[4]}`];
+    const fmlaEntries = [{
+      staffId: fmlaPerson.id,
+      onFmla: true,
+      startDate: dates[5],
+      endDate: dates[5],
+      rolledOver: false,
+    }];
+
+    expect(
+      getWeekendOnCallEligibleStaff(
+        staff,
+        dates[0],
+        shifts,
+        ptoDates,
+        fmlaEntries,
+      ),
+    ).toEqual([]);
+    expect(
+      hasWeekendBoundaryLeave(
+        ptoPerson.id,
+        dates[0],
+        shifts,
+        ptoDates,
+        fmlaEntries,
+      ),
+    ).toBe(true);
+    expect(
+      hasWeekendBoundaryLeave(
+        fmlaPerson.id,
+        dates[0],
+        shifts,
+        ptoDates,
+        fmlaEntries,
+      ),
+    ).toBe(true);
   });
 
   it('assigns a trained department, balances dual-trained calls, and excludes ineligible staff', () => {
