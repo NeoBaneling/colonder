@@ -41,7 +41,7 @@ export interface Settings {
   isDark: boolean;
 }
 
-export type SegmentStep = 'fmla' | 'pto' | 'prn' | 'review';
+export type SegmentStep = 'start-date' | 'fmla' | 'pto' | 'prn' | 'review';
 
 export type SegmentWarning = {
   code:

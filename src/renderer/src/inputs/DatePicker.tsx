@@ -206,7 +206,7 @@ export const DatePicker = ({
             style={position}
           >
             <header className='fmla-date-popover-header'>
-              <span>{label.startsWith('Start') ? 'Start date' : 'End date'}</span>
+              <span>{label.startsWith('End') ? 'End date' : 'Start date'}</span>
               <span>{draftDate ? formatDate(draftDate) : 'Optional'}</span>
             </header>
             <div className='fmla-calendar-navigation'>

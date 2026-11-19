@@ -5,7 +5,9 @@ import {
   useRef,
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
 } from 'react';
+import { createPortal } from 'react-dom';
 import {
   useBlocker,
   useNavigate,
@@ -56,7 +58,7 @@ import {
 const palmIcon = new URL('../assets/palm-icon.svg', import.meta.url).href;
 const palmTree = new URL('../assets/palm-tree.svg', import.meta.url).href;
 
-type View = 'fmla' | 'pto' | 'prn' | 'generating' | 'review';
+type View = 'start-date' | 'fmla' | 'pto' | 'prn' | 'generating' | 'review';
 type ReviewEdit = Pick<
   SegmentState,
   | 'shifts'
@@ -121,12 +123,111 @@ const weekGroups = (dates: string[], startDate: string) => {
 
 const sortedStaff = (staff: Staff[]): Staff[] =>
   [...staff].sort((a, b) => {
-    if (a.role !== b.role) return a.role - b.role;
+    const category = (person: Staff) =>
+      person.role === Role.ChargeNurse
+        ? 0
+        : person.employment === Emp.PRN
+          ? 2
+          : person.role === Role.Nurse
+            ? 1
+            : 3;
+    const categoryDiff = category(a) - category(b);
+    if (categoryDiff !== 0) return categoryDiff;
     return (
-      a.lastName.localeCompare(b.lastName) ||
-      a.firstName.localeCompare(b.firstName)
+      a.firstName.localeCompare(b.firstName) ||
+      a.lastName.localeCompare(b.lastName)
     );
   });
+
+const weekdayDate = (date: string): string =>
+  new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    timeZone: 'UTC',
+  }).format(new Date(`${date}T00:00:00.000Z`));
+
+type TooltipPlacement = {
+  left: number;
+  top?: number;
+  bottom?: number;
+  side: 'above' | 'below';
+};
+
+const ScheduleCellTooltip = ({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) => {
+  const timer = useRef<number | null>(null);
+  const [placement, setPlacement] = useState<TooltipPlacement | null>(null);
+
+  const hide = () => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = null;
+    setPlacement(null);
+  };
+  const show = (element: HTMLElement) => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => {
+      const bounds = element.getBoundingClientRect();
+      const side = window.innerHeight - bounds.bottom < 64 ? 'above' : 'below';
+      const tooltipHalfWidth = Math.min(
+        144,
+        Math.max(0, window.innerWidth / 2 - 8),
+      );
+      setPlacement({
+        left: Math.max(
+          tooltipHalfWidth + 8,
+          Math.min(
+            bounds.left + bounds.width / 2,
+            window.innerWidth - tooltipHalfWidth - 8,
+          ),
+        ),
+        side,
+        ...(side === 'above'
+          ? { bottom: window.innerHeight - bounds.top + 8 }
+          : { top: bounds.bottom + 8 }),
+      });
+    }, 600);
+  };
+
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+    },
+    [],
+  );
+
+  return (
+    <>
+      <span
+        className='schedule-tooltip-anchor'
+        onMouseEnter={(event) => show(event.currentTarget)}
+        onMouseLeave={hide}
+        onFocusCapture={(event) => show(event.currentTarget)}
+        onBlurCapture={hide}
+      >
+        {children}
+      </span>
+      {placement &&
+        createPortal(
+          <span
+            role='tooltip'
+            className={`schedule-cell-tooltip schedule-cell-tooltip-${placement.side}`}
+            style={{
+              left: placement.left,
+              top: placement.top,
+              bottom: placement.bottom,
+            }}
+          >
+            {label}
+          </span>,
+          document.body,
+        )}
+    </>
+  );
+};
 
 const moveGridFocus = (
   event: ReactKeyboardEvent<HTMLButtonElement>,
@@ -171,6 +272,7 @@ type InputGridProps = {
   disabledKeys?: Set<string>;
   kind: 'pto' | 'prn';
   onToggle: (key: string, value: boolean) => void;
+  transitionClass?: string;
 };
 
 const InputGrid = ({
@@ -183,6 +285,7 @@ const InputGrid = ({
   disabledKeys,
   kind,
   onToggle,
+  transitionClass = '',
 }: InputGridProps) => {
   const [paintValue, setPaintValue] = useState<boolean | null>(null);
   const [isScrolled, setIsScrolled] = useState(false);
@@ -190,7 +293,9 @@ const InputGrid = ({
   const people = sortedStaff(staff);
 
   return (
-    <section className='flex min-w-0 flex-col gap-3'>
+    <section
+      className={`flex min-w-0 flex-col gap-3 generator-step-panel ${transitionClass}`}
+    >
       <h2 className='text-sm! sm:text-base!'>
         {title} <span className='font-normal'>({instructions})</span>
       </h2>
@@ -254,33 +359,39 @@ const InputGrid = ({
                     const isDisabled = disabledKeys?.has(key) ?? false;
                     return (
                       <td key={date}>
-                        <button
-                          type='button'
-                          aria-label={`${person.firstName} ${person.lastName}, ${formatDate(date)}: ${isDisabled ? 'unavailable due to leave' : isSelected ? 'selected' : 'not selected'}`}
-                          aria-pressed={isSelected}
-                          disabled={isDisabled}
-                          data-grid-row={rowIndex}
-                          data-grid-column={columnIndex}
-                          className={`schedule-cell ${isSelected ? (kind === 'pto' ? 'schedule-cell-pto' : 'schedule-cell-prn') : ''}`}
-                          onPointerDown={(event) => {
-                            if (event.button !== 0) return;
-                            event.preventDefault();
-                            const nextValue = !isSelected;
-                            setPaintValue(nextValue);
-                            onToggle(key, nextValue);
-                          }}
-                          onPointerEnter={() => {
-                            if (paintValue !== null) onToggle(key, paintValue);
-                          }}
-                          onClick={(event) => {
-                            if (event.detail === 0) onToggle(key, !isSelected);
-                          }}
-                          onKeyDown={(event) =>
-                            moveGridFocus(event, rowIndex, columnIndex)
-                          }
+                        <ScheduleCellTooltip
+                          label={`${person.firstName} ${person.lastName} · ${weekdayDate(date)}, ${formatDate(date)}`}
                         >
-                          {isSelected ? (kind === 'pto' ? 'P' : '✓') : ''}
-                        </button>
+                          <button
+                            type='button'
+                            aria-label={`${person.firstName} ${person.lastName}, ${formatDate(date)}: ${isDisabled ? 'unavailable due to leave' : isSelected ? 'selected' : 'not selected'}`}
+                            aria-pressed={isSelected}
+                            disabled={isDisabled}
+                            data-grid-row={rowIndex}
+                            data-grid-column={columnIndex}
+                            className={`schedule-cell ${isSelected ? (kind === 'pto' ? 'schedule-cell-pto' : 'schedule-cell-prn') : ''}`}
+                            onPointerDown={(event) => {
+                              if (event.button !== 0) return;
+                              event.preventDefault();
+                              const nextValue = !isSelected;
+                              setPaintValue(nextValue);
+                              onToggle(key, nextValue);
+                            }}
+                            onPointerEnter={() => {
+                              if (paintValue !== null)
+                                onToggle(key, paintValue);
+                            }}
+                            onClick={(event) => {
+                              if (event.detail === 0)
+                                onToggle(key, !isSelected);
+                            }}
+                            onKeyDown={(event) =>
+                              moveGridFocus(event, rowIndex, columnIndex)
+                            }
+                          >
+                            {isSelected ? (kind === 'pto' ? 'P' : '✓') : ''}
+                          </button>
+                        </ScheduleCellTooltip>
                       </td>
                     );
                   })}
@@ -327,7 +438,12 @@ const GeneratorPage = () => {
   const [draftId, setDraftId] = useState<number | null>(null);
   const draftCreation = useRef<Promise<ScheduleSegment> | null>(null);
   const [editScheduleId, setEditScheduleId] = useState<number | null>(null);
-  const [view, setView] = useState<View>('fmla');
+  const [view, setView] = useState<View>('start-date');
+  const [isDirty, setIsDirty] = useState(false);
+  const [transitionDirection, setTransitionDirection] = useState<
+    'forward' | 'backward' | ''
+  >('');
+  const previousView = useRef<View | null>(null);
   const [fmlaSearch, setFmlaSearch] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -336,9 +452,9 @@ const GeneratorPage = () => {
   const [isWorking, setIsWorking] = useState(false);
   const [onCallMode, setOnCallMode] = useState(false);
   const [ptoMode, setPtoMode] = useState(false);
-  const [ptoModeInitialDates, setPtoModeInitialDates] = useState<string[] | null>(
-    null,
-  );
+  const [ptoModeInitialDates, setPtoModeInitialDates] = useState<
+    string[] | null
+  >(null);
   const [ptoModeInitialManualEdits, setPtoModeInitialManualEdits] =
     useState(false);
   const [showPtoRecalculate, setShowPtoRecalculate] = useState(false);
@@ -363,6 +479,7 @@ const GeneratorPage = () => {
   const [reviewGridScrolled, setReviewGridScrolled] = useState(false);
   const hasDraftProgress =
     state !== null &&
+    view !== 'start-date' &&
     (view === 'review' ||
       view === 'generating' ||
       state.fmlaEntries.some((entry) => entry.onFmla || entry.rolledOver) ||
@@ -371,10 +488,41 @@ const GeneratorPage = () => {
   const blocker = useBlocker(
     ({ currentLocation, nextLocation }) =>
       editScheduleId === null &&
-      hasDraftProgress &&
+      isDirty &&
       !isWorking &&
       currentLocation.pathname !== nextLocation.pathname,
   );
+  const nextAvailableStartDate = settings
+    ? nextWorkingStart(
+        settings.workingDays,
+        segments
+          .filter((segment) => segment.status === 'confirmed')
+          .map((segment) => segment.endDate),
+      )
+    : '';
+
+  useEffect(() => {
+    if (previousView.current === null) {
+      previousView.current = view;
+      return;
+    }
+    if (previousView.current !== view) {
+      const stepOrder: Record<View, number> = {
+        'start-date': 0,
+        fmla: 1,
+        pto: 2,
+        prn: 3,
+        generating: 4,
+        review: 5,
+      };
+      setTransitionDirection(
+        stepOrder[view] >= stepOrder[previousView.current]
+          ? 'forward'
+          : 'backward',
+      );
+      previousView.current = view;
+    }
+  }, [view]);
   const createDraft = (draftState: SegmentState) => {
     if (draftCreation.current === null) {
       const creation = window.segments.create(draftState);
@@ -395,6 +543,7 @@ const GeneratorPage = () => {
     ])
       .then(([staffMembers, savedSettings, savedSegments]) => {
         if (!active) return;
+        setIsDirty(false);
         const activeStaff = staffMembers;
         setStaff(activeStaff);
         setSettings(savedSettings);
@@ -427,7 +576,7 @@ const GeneratorPage = () => {
         } else {
           setDraftId(null);
           setEditScheduleId(null);
-          setView('fmla');
+          setView('start-date');
           const previousSegment = savedSegments
             .filter((segment) => segment.status === 'confirmed')
             .sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
@@ -445,7 +594,7 @@ const GeneratorPage = () => {
           }
 
           const initial: SegmentState = {
-            step: 'fmla',
+            step: 'start-date',
             startDate,
             endDate: segmentEndDate(startDate, savedSettings.workingDays),
             fmlaEntries: previousSegment
@@ -601,6 +750,7 @@ const GeneratorPage = () => {
     key: string,
     value: boolean,
   ) => {
+    setIsDirty(true);
     setState((current) => {
       if (!current) return current;
       const values = new Set(current[field]);
@@ -612,6 +762,7 @@ const GeneratorPage = () => {
 
   const setFmlaEnabled = (person: Staff, onFmla: boolean) => {
     if (!state) return;
+    setIsDirty(true);
     const existing = state.fmlaEntries.find(
       (entry) => entry.staffId === person.id,
     );
@@ -667,6 +818,7 @@ const GeneratorPage = () => {
     field: 'startDate' | 'endDate',
     value: string,
   ) => {
+    setIsDirty(true);
     setState((current) => {
       if (!current) return current;
       return {
@@ -681,6 +833,7 @@ const GeneratorPage = () => {
   };
 
   const runGeneration = useCallback((source: SegmentState) => {
+    setIsDirty(true);
     setView('generating');
     setSelectedWork(null);
     window.setTimeout(() => {
@@ -715,6 +868,50 @@ const GeneratorPage = () => {
     }, 120);
   }, []);
 
+  const updateScheduleStartDate = (value: string | null) => {
+    if (
+      !state ||
+      value === null ||
+      !nextAvailableStartDate ||
+      value < nextAvailableStartDate
+    ) {
+      return;
+    }
+    const previousSegment = segments
+      .filter((segment) => segment.status === 'confirmed')
+      .sort((a, b) => b.endDate.localeCompare(a.endDate))[0];
+    setIsDirty(value !== nextAvailableStartDate);
+    setState((current) => {
+      if (!current) return current;
+      const rolledOverEntries = previousSegment
+        ? getRolledOverFmlaEntries(previousSegment, value)
+        : [];
+      const nonRolloverEntries = current.fmlaEntries.filter(
+        (entry) => !entry.rolledOver,
+      );
+      return {
+        ...current,
+        startDate: value,
+        endDate: segmentEndDate(value, current.settingsSnapshot.workingDays),
+        fmlaEntries: [
+          ...nonRolloverEntries,
+          ...rolledOverEntries.filter(
+            (entry) =>
+              !nonRolloverEntries.some(
+                (existing) => existing.staffId === entry.staffId,
+              ),
+          ),
+        ],
+      };
+    });
+  };
+
+  const nextFromStartDate = () => {
+    if (!state || state.startDate < nextAvailableStartDate) return;
+    setState({ ...state, step: 'fmla' });
+    setView('fmla');
+  };
+
   const nextFromFmla = () => {
     if (!state || hasInvalidFmlaRange) return;
     const nextState: SegmentState = { ...state, step: 'pto' };
@@ -735,6 +932,7 @@ const GeneratorPage = () => {
 
   const makeSwap = (staffId: number, workDate: string, offDate: string) => {
     if (!state) return;
+    setIsDirty(true);
     setUndoStack((history) => [...history, reviewEdit(state)]);
     setRedoStack([]);
     setState((current) => {
@@ -768,6 +966,7 @@ const GeneratorPage = () => {
     onCallAutoApplied = false,
   ) => {
     if (!state) return;
+    setIsDirty(true);
     setUndoStack((history) => [...history, reviewEdit(state)]);
     setRedoStack([]);
     setState({
@@ -804,6 +1003,7 @@ const GeneratorPage = () => {
   };
 
   const setReviewPto = (key: string, value: boolean) => {
+    setIsDirty(true);
     setState((current) => {
       if (!current) return current;
       const ptoDates = new Set(current.ptoDates);
@@ -866,7 +1066,10 @@ const GeneratorPage = () => {
           step: 'review',
           shifts: generateSegmentShifts(
             state.staffSnapshot,
-            getSegmentDates(state.startDate, state.settingsSnapshot.workingDays),
+            getSegmentDates(
+              state.startDate,
+              state.settingsSnapshot.workingDays,
+            ),
             state.ptoDates,
             state.prnDates,
             state.startDate,
@@ -913,6 +1116,7 @@ const GeneratorPage = () => {
     department: Dept | null,
   ) => {
     if (!state) return;
+    setIsDirty(true);
     const key = cellKey(staffId, date);
     const onCall = new Set(state.onCall);
     const onCallDepartments = { ...(state.onCallDepartments ?? {}) };
@@ -970,9 +1174,7 @@ const GeneratorPage = () => {
           name: `${person.firstName} ${person.lastName}`,
           rolledOver: state.fmlaEntries.some(
             (entry) =>
-              entry.staffId === person.id &&
-              entry.onFmla &&
-              entry.rolledOver,
+              entry.staffId === person.id && entry.onFmla && entry.rolledOver,
           ),
         })),
       generatedWeekdayOnCall: assignments.onCall,
@@ -1047,6 +1249,7 @@ const GeneratorPage = () => {
 
   const updateWeekendOnCall = (weekStart: string, value: string) => {
     if (!state) return;
+    setIsDirty(true);
     const staffId = value === '' ? null : Number(value);
     const weekendOnCall = (state.weekendOnCall ?? []).filter(
       (entry) => entry.weekStart !== weekStart,
@@ -1085,6 +1288,7 @@ const GeneratorPage = () => {
 
   const undo = useCallback(() => {
     if (!state || undoStack.length === 0) return;
+    setIsDirty(true);
     const previous = undoStack[undoStack.length - 1];
     setRedoStack((stack) => [...stack, reviewEdit(state)]);
     setUndoStack((stack) => stack.slice(0, -1));
@@ -1102,6 +1306,7 @@ const GeneratorPage = () => {
 
   const redo = useCallback(() => {
     if (!state || redoStack.length === 0) return;
+    setIsDirty(true);
     const next = redoStack[redoStack.length - 1];
     setUndoStack((stack) => [...stack, reviewEdit(state)]);
     setRedoStack((stack) => stack.slice(0, -1));
@@ -1268,8 +1473,10 @@ const GeneratorPage = () => {
     );
   }
 
-  const activeStep: SegmentStep =
-    view === 'fmla' || view === 'pto' || view === 'prn' ? view : 'review';
+  const activeStep: SegmentStep = view === 'generating' ? 'review' : view;
+  const transitionClass = transitionDirection
+    ? `generator-step-${transitionDirection}`
+    : '';
   const title =
     editScheduleId !== null
       ? 'Edit schedule'
@@ -1290,20 +1497,22 @@ const GeneratorPage = () => {
                 aria-label='Schedule creation steps'
               >
                 {[
+                  ['Schedule', 'bi-calendar3'],
                   ['FMLA', 'bi-heart'],
                   ['PTO', 'bi-pencil'],
                   ['Generate', 'bi-arrow-repeat'],
                   ['Review', 'bi-eye'],
-                  ['Confirm', 'bi-check-lg'],
                 ].map(([label, icon], index) => {
                   const currentIndex =
-                    activeStep === 'fmla'
+                    activeStep === 'start-date'
                       ? 0
-                      : activeStep === 'pto' || activeStep === 'prn'
+                      : activeStep === 'fmla'
                         ? 1
-                        : view === 'generating'
+                        : activeStep === 'pto' || activeStep === 'prn'
                           ? 2
-                          : 3;
+                          : view === 'generating'
+                            ? 3
+                            : 4;
                   const isCurrent = currentIndex === index;
                   const isComplete = currentIndex > index;
                   return (
@@ -1339,8 +1548,50 @@ const GeneratorPage = () => {
             )}
           </div>
 
+          {view === 'start-date' && state && settings && (
+            <section
+              key={view}
+              className={`fmla-step flex flex-col gap-3 generator-step-panel ${transitionClass}`}
+            >
+              <h2>Select start date</h2>
+              <div className='flex w-56'>
+                <DatePicker
+                  label='Schedule start date'
+                  value={state.startDate}
+                  scheduleStart={nextAvailableStartDate}
+                  scheduleEnd={segmentEndDate(
+                    state.startDate,
+                    state.settingsSnapshot.workingDays,
+                  )}
+                  minDate={nextAvailableStartDate}
+                  onChange={updateScheduleStartDate}
+                />
+              </div>
+              <div className='flex flex-wrap justify-between gap-2 mt-80'>
+                <IconButton
+                  ariaLabel='Back'
+                  icon='bi-chevron-left'
+                  variant='outlined'
+                  onClick={() => navigate('/')}
+                />
+                <Button
+                  disabled={
+                    !nextAvailableStartDate ||
+                    state.startDate < nextAvailableStartDate
+                  }
+                  onClick={nextFromStartDate}
+                >
+                  Continue
+                </Button>
+              </div>
+            </section>
+          )}
+
           {view === 'fmla' && state && (
-            <section className='fmla-step flex min-w-0 flex-col gap-3'>
+            <section
+              key={view}
+              className={`fmla-step flex min-w-0 flex-col gap-3 generator-step-panel ${transitionClass}`}
+            >
               <h2 className='text-sm! sm:text-base!'>FMLA</h2>
               <div className='fmla-rollover-banner' role='status'>
                 <span className='fmla-heart' aria-hidden='true'>
@@ -1466,7 +1717,9 @@ const GeneratorPage = () => {
                                   scheduleEnd={state.endDate}
                                   minDate={state.startDate}
                                   maxDate={state.endDate}
-                                  rangeStart={entry?.startDate ?? state.startDate}
+                                  rangeStart={
+                                    entry?.startDate ?? state.startDate
+                                  }
                                   rangeEnd={entry?.endDate ?? null}
                                   onChange={(value) =>
                                     updateFmlaDate(
@@ -1491,9 +1744,7 @@ const GeneratorPage = () => {
                                 scheduleEnd={state.endDate}
                                 minDate={state.startDate}
                                 maxDate={state.endDate}
-                                rangeStart={
-                                  entry?.startDate ?? state.startDate
-                                }
+                                rangeStart={entry?.startDate ?? state.startDate}
                                 rangeEnd={entry?.endDate ?? null}
                                 invalid={invalidRange}
                                 describedBy={
@@ -1534,19 +1785,16 @@ const GeneratorPage = () => {
                   </tbody>
                 </table>
               </div>
-              {savingError && (
-                <p role='alert' className='text-sm! text-cherry-600'>
-                  {savingError}
-                </p>
-              )}
               <div className='flex flex-wrap justify-between gap-2'>
                 <IconButton
-                  ariaLabel='Back'
+                  ariaLabel={view === 'fmla' ? 'Back to start date' : 'Back'}
                   icon='bi-chevron-left'
                   variant='outlined'
                   onClick={() => {
-                    if (hasDraftProgress) setShowDiscard(true);
-                    else void discardDraft();
+                    setState((current) =>
+                      current ? { ...current, step: 'start-date' } : current,
+                    );
+                    setView('start-date');
                   }}
                 />
                 <Button disabled={hasInvalidFmlaRange} onClick={nextFromFmla}>
@@ -1559,6 +1807,8 @@ const GeneratorPage = () => {
           {(view === 'pto' || view === 'prn') && state && (
             <>
               <InputGrid
+                key={view}
+                transitionClass={transitionClass}
                 title={view === 'pto' ? 'PTO calendar' : 'PRN working days'}
                 instructions={
                   view === 'pto'
@@ -1638,7 +1888,8 @@ const GeneratorPage = () => {
 
           {view === 'generating' && (
             <div
-              className='flex min-h-56 flex-col items-center justify-center gap-3'
+              key={view}
+              className={`flex min-h-56 flex-col items-center justify-center gap-3 generator-step-panel ${transitionClass}`}
               role='status'
             >
               <span
@@ -1659,7 +1910,10 @@ const GeneratorPage = () => {
           )}
 
           {view === 'review' && state && (
-            <>
+            <div
+              key={view}
+              className={`flex flex-col gap-3 generator-step-panel ${transitionClass}`}
+            >
               <div className='flex flex-wrap items-center justify-between gap-3'>
                 <div className='flex flex-wrap items-center gap-2'>
                   {selectedWork && !onCallMode && (
@@ -1963,74 +2217,90 @@ const GeneratorPage = () => {
                                   : 'Off';
                           return (
                             <td key={date}>
-                              <button
-                                type='button'
-                                aria-label={`${person.firstName} ${person.lastName}, ${formatDate(date)}: ${label}`}
-                                aria-pressed={
-                                  ptoMode ? isPto : isSelected || isOnCall
-                                }
-                                aria-haspopup={
-                                  shouldShowDepartmentPopup
-                                    ? 'dialog'
-                                    : undefined
-                                }
-                                aria-expanded={
-                                  shouldShowDepartmentPopup &&
-                                  onCallPopupKey === key
-                                }
-                                disabled={!enabled}
-                                data-grid-row={rowIndex}
-                                data-grid-column={columnIndex}
-                                className={`schedule-cell ${showPto ? 'schedule-cell-pto' : ''} ${isFmla ? 'schedule-cell-fmla' : ''} ${showWork && !isPto ? 'schedule-cell-work' : ''} ${showOnCall ? `schedule-cell-oncall ${callDepartment === Dept.PACU ? 'schedule-cell-oncall-pacu' : 'schedule-cell-oncall-proc'}` : ''} ${isSelected ? 'schedule-cell-selected' : ''} ${isSwapTarget ? 'schedule-cell-target' : ''} ${!onCallMode && isPrn && !ptoMode ? 'schedule-cell-disabled' : ''}`}
-                                onPointerDown={(event) => {
-                                  if (!ptoMode || event.button !== 0 || isFmla) {
-                                    return;
-                                  }
-                                  event.preventDefault();
-                                  const nextValue = !isPto;
-                                  setPaintPtoValue(nextValue);
-                                  setReviewPto(key, nextValue);
-                                }}
-                                onPointerEnter={() => {
-                                  if (ptoMode && !isFmla && paintPtoValue !== null) {
-                                    setReviewPto(key, paintPtoValue);
-                                  }
-                                }}
-                                onClick={(event) => {
-                                  if (ptoMode && !isFmla) {
-                                    if (event.detail === 0) {
-                                      setReviewPto(key, !isPto);
-                                    }
-                                  } else if (onCallMode && !isLeave && shift) {
-                                    beginOnCallAssignment(person, date);
-                                  } else if (isSwapTarget && selectedWork) {
-                                    makeSwap(
-                                      selectedWork.staffId,
-                                      selectedWork.date,
-                                      date,
-                                    );
-                                  } else if (shift) {
-                                    setSelectedWork(
-                                      isSelected
-                                        ? null
-                                        : { staffId: person.id, date },
-                                    );
-                                  }
-                                }}
-                                onKeyDown={(event) =>
-                                  moveGridFocus(event, rowIndex, columnIndex)
-                                }
+                              <ScheduleCellTooltip
+                                label={`${person.firstName} ${person.lastName} · ${weekdayDate(date)}, ${formatDate(date)}`}
                               >
-                                {isFmla
-                                  ? 'F'
-                                  : showPto
-                                    ? 'P'
-                                    : showOnCall
-                                      ? 'OC'
-                                      : showWork
-                                        ? 'W'
-                                        : '–'}
-                              </button>
+                                <button
+                                  type='button'
+                                  aria-label={`${person.firstName} ${person.lastName}, ${formatDate(date)}: ${label}`}
+                                  aria-pressed={
+                                    ptoMode ? isPto : isSelected || isOnCall
+                                  }
+                                  aria-haspopup={
+                                    shouldShowDepartmentPopup
+                                      ? 'dialog'
+                                      : undefined
+                                  }
+                                  aria-expanded={
+                                    shouldShowDepartmentPopup &&
+                                    onCallPopupKey === key
+                                  }
+                                  disabled={!enabled}
+                                  data-grid-row={rowIndex}
+                                  data-grid-column={columnIndex}
+                                  className={`schedule-cell ${showPto ? 'schedule-cell-pto' : ''} ${isFmla ? 'schedule-cell-fmla' : ''} ${showWork && !isPto ? 'schedule-cell-work' : ''} ${showOnCall ? `schedule-cell-oncall ${callDepartment === Dept.PACU ? 'schedule-cell-oncall-pacu' : 'schedule-cell-oncall-proc'}` : ''} ${isSelected ? 'schedule-cell-selected' : ''} ${isSwapTarget ? 'schedule-cell-target' : ''} ${!onCallMode && isPrn && !ptoMode ? 'schedule-cell-disabled' : ''}`}
+                                  onPointerDown={(event) => {
+                                    if (
+                                      !ptoMode ||
+                                      event.button !== 0 ||
+                                      isFmla
+                                    ) {
+                                      return;
+                                    }
+                                    event.preventDefault();
+                                    const nextValue = !isPto;
+                                    setPaintPtoValue(nextValue);
+                                    setReviewPto(key, nextValue);
+                                  }}
+                                  onPointerEnter={() => {
+                                    if (
+                                      ptoMode &&
+                                      !isFmla &&
+                                      paintPtoValue !== null
+                                    ) {
+                                      setReviewPto(key, paintPtoValue);
+                                    }
+                                  }}
+                                  onClick={(event) => {
+                                    if (ptoMode && !isFmla) {
+                                      if (event.detail === 0) {
+                                        setReviewPto(key, !isPto);
+                                      }
+                                    } else if (
+                                      onCallMode &&
+                                      !isLeave &&
+                                      shift
+                                    ) {
+                                      beginOnCallAssignment(person, date);
+                                    } else if (isSwapTarget && selectedWork) {
+                                      makeSwap(
+                                        selectedWork.staffId,
+                                        selectedWork.date,
+                                        date,
+                                      );
+                                    } else if (shift) {
+                                      setSelectedWork(
+                                        isSelected
+                                          ? null
+                                          : { staffId: person.id, date },
+                                      );
+                                    }
+                                  }}
+                                  onKeyDown={(event) =>
+                                    moveGridFocus(event, rowIndex, columnIndex)
+                                  }
+                                >
+                                  {isFmla
+                                    ? 'F'
+                                    : showPto
+                                      ? 'P'
+                                      : showOnCall
+                                        ? 'OC'
+                                        : showWork
+                                          ? 'W'
+                                          : '–'}
+                                </button>
+                              </ScheduleCellTooltip>
                               {onCallMode &&
                                 shouldShowDepartmentPopup &&
                                 onCallPopupKey === key && (
@@ -2160,97 +2430,102 @@ const GeneratorPage = () => {
                         <th className='schedule-name-cell' scope='row'>
                           Weekend OC
                         </th>
-                        {weekGroups(dates, state.startDate).map((group) => {
-                          const eligibleWeekendStaff =
-                            getWeekendOnCallEligibleStaff(
-                              weekendOnCallStaff,
-                              group.dates[0],
-                              state.shifts,
-                              state.ptoDates,
-                              state.fmlaEntries,
+                        {weekGroups(dates, state.startDate).map(
+                          (group, index) => {
+                            const eligibleWeekendStaff =
+                              getWeekendOnCallEligibleStaff(
+                                weekendOnCallStaff,
+                                group.dates[0],
+                                state.shifts,
+                                state.ptoDates,
+                                state.fmlaEntries,
+                              );
+                            const assignment = (state.weekendOnCall ?? []).find(
+                              (entry) => entry.weekStart === group.dates[0],
                             );
-                          const assignment = (state.weekendOnCall ?? []).find(
-                            (entry) => entry.weekStart === group.dates[0],
-                          );
-                          const assignedStaff = eligibleWeekendStaff.find(
-                            (person) => person.id === assignment?.staffId,
-                          );
-                          return (
-                            <td key={group.week} colSpan={group.dates.length}>
-                              <div className='schedule-weekend-picker'>
-                                <button
-                                  type='button'
-                                  aria-label={`Weekend OC Week ${group.week + 1}`}
-                                  aria-expanded={
-                                    weekendPopupWeek === group.dates[0]
-                                  }
-                                  aria-haspopup='listbox'
-                                  className='schedule-weekend-select'
-                                  disabled={
-                                    !onCallMode ||
-                                    eligibleWeekendStaff.length === 0
-                                  }
-                                  onClick={() =>
-                                    setWeekendPopupWeek((current) =>
-                                      current === group.dates[0]
-                                        ? null
-                                        : group.dates[0],
-                                    )
-                                  }
-                                >
-                                  {assignedStaff
-                                    ? `${assignedStaff.firstName} ${assignedStaff.lastName.slice(0, 1)}.`
-                                    : 'Assign nurse'}
-                                  <i
-                                    className='bi bi-chevron-down'
-                                    aria-hidden='true'
-                                  />
-                                </button>
-                                {weekendPopupWeek === group.dates[0] && (
-                                  <div
-                                    className='schedule-weekend-options'
-                                    role='listbox'
-                                    aria-label={`Eligible staff for Weekend OC Week ${group.week + 1}`}
+                            const assignedStaff = eligibleWeekendStaff.find(
+                              (person) => person.id === assignment?.staffId,
+                            );
+                            return (
+                              <td key={group.week} colSpan={group.dates.length}>
+                                <div className='schedule-weekend-picker'>
+                                  <button
+                                    type='button'
+                                    aria-label={`Weekend OC Week ${group.week + 1}`}
+                                    aria-expanded={
+                                      weekendPopupWeek === group.dates[0]
+                                    }
+                                    aria-haspopup='listbox'
+                                    className='schedule-weekend-select'
+                                    disabled={
+                                      !onCallMode ||
+                                      eligibleWeekendStaff.length === 0
+                                    }
+                                    onClick={() =>
+                                      setWeekendPopupWeek((current) =>
+                                        current === group.dates[0]
+                                          ? null
+                                          : group.dates[0],
+                                      )
+                                    }
                                   >
-                                    <button
-                                      type='button'
-                                      role='option'
-                                      aria-selected={
-                                        assignment?.staffId === null
-                                      }
-                                      onClick={() => {
-                                        updateWeekendOnCall(group.dates[0], '');
-                                        setWeekendPopupWeek(null);
-                                      }}
+                                    {assignedStaff
+                                      ? `${assignedStaff.firstName} ${assignedStaff.lastName.slice(0, 1)}.`
+                                      : 'Assign nurse'}
+                                    <i
+                                      className='bi bi-chevron-down'
+                                      aria-hidden='true'
+                                    />
+                                  </button>
+                                  {weekendPopupWeek === group.dates[0] && (
+                                    <div
+                                      className='schedule-weekend-options'
+                                      role='listbox'
+                                      aria-label={`Eligible staff for Weekend OC Week ${group.week + 1}`}
                                     >
-                                      Assign nurse
-                                    </button>
-                                    {eligibleWeekendStaff.map((person) => (
                                       <button
                                         type='button'
                                         role='option'
                                         aria-selected={
-                                          assignment?.staffId === person.id
+                                          assignment?.staffId === null
                                         }
-                                        key={person.id}
                                         onClick={() => {
                                           updateWeekendOnCall(
                                             group.dates[0],
-                                            String(person.id),
+                                            '',
                                           );
                                           setWeekendPopupWeek(null);
                                         }}
                                       >
-                                        {person.firstName}{' '}
-                                        {person.lastName.slice(0, 1)}.
+                                        Assign nurse
                                       </button>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
-                            </td>
-                          );
-                        })}
+                                      {eligibleWeekendStaff.map((person) => (
+                                        <button
+                                          type='button'
+                                          role='option'
+                                          aria-selected={
+                                            assignment?.staffId === person.id
+                                          }
+                                          key={person.id}
+                                          onClick={() => {
+                                            updateWeekendOnCall(
+                                              group.dates[0],
+                                              String(person.id),
+                                            );
+                                            setWeekendPopupWeek(null);
+                                          }}
+                                        >
+                                          {person.firstName}{' '}
+                                          {person.lastName.slice(0, 1)}.
+                                        </button>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          },
+                        )}
                       </tr>
                     )}
                   </tfoot>
@@ -2298,7 +2573,7 @@ const GeneratorPage = () => {
                   }}
                 />
               </div>
-            </>
+            </div>
           )}
         </div>
       </PageContent>

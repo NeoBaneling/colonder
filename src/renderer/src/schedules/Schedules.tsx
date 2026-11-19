@@ -20,9 +20,8 @@ const SchedulesPage = () => {
   const location = useLocation();
   const [segments, setSegments] = useState<ScheduleSegment[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [scheduleToDelete, setScheduleToDelete] = useState<ScheduleSegment | null>(
-    null,
-  );
+  const [scheduleToDelete, setScheduleToDelete] =
+    useState<ScheduleSegment | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [highlightedId, setHighlightedId] = useState<number | null>(null);
 
@@ -64,7 +63,8 @@ const SchedulesPage = () => {
       if (!deleted) throw new Error('This schedule no longer exists.');
       setSegments(
         (current) =>
-          current?.filter((segment) => segment.id !== scheduleToDelete.id) ?? [],
+          current?.filter((segment) => segment.id !== scheduleToDelete.id) ??
+          [],
       );
       setScheduleToDelete(null);
       setDeleteError(null);
@@ -74,9 +74,7 @@ const SchedulesPage = () => {
       );
     } catch (error) {
       const message =
-        error instanceof Error
-          ? error.message
-          : 'Unable to delete schedule.';
+        error instanceof Error ? error.message : 'Unable to delete schedule.';
       setDeleteError(message);
       toast.failure("Couldn't delete schedule", message);
     }
@@ -85,7 +83,7 @@ const SchedulesPage = () => {
   return (
     <>
       <PageContent
-        title="Schedules"
+        title='Schedules'
         actions={[
           {
             ariaLabel: 'Create schedule',
@@ -96,29 +94,29 @@ const SchedulesPage = () => {
         ]}
       >
         {loadError ? (
-          <p role="alert">Unable to load schedules: {loadError}</p>
+          <p role='alert'>Unable to load schedules: {loadError}</p>
         ) : segments === null ? (
-          <p role="status">Loading schedules…</p>
+          <p role='status'>Loading schedules…</p>
         ) : segments.length === 0 ? (
-          <div className="card w-full items-start">
+          <div className='card w-full items-start'>
             <h2>No schedules yet</h2>
             <p>Every great schedule starts with a first day.</p>
             <IconButton
-              ariaLabel="Create schedule"
-              icon="bi-plus-lg"
-              variant="filled"
+              ariaLabel='Create schedule'
+              icon='bi-plus-lg'
+              variant='filled'
               onClick={() => navigate('/new')}
             />
           </div>
         ) : (
-          <div className="card w-full list-table">
+          <div className='card w-full list-table'>
             <table>
               <thead>
                 <tr>
                   <th>Schedule</th>
                   <th>Status</th>
                   <th>Staff</th>
-                  <th aria-label="Actions" className="w-24 min-w-24" />
+                  <th aria-label='Actions' className='w-24 min-w-24' />
                 </tr>
               </thead>
               <tbody>
@@ -144,21 +142,23 @@ const SchedulesPage = () => {
                       </span>
                     </td>
                     <td>{segment.state.staffSnapshot.length}</td>
-                    <td className="w-24 min-w-24">
-                      <div className="flex flex-wrap gap-2">
-                        {segment.status === 'draft' && (
-                          <IconButton
-                            ariaLabel="Resume schedule draft"
-                            title="Resume schedule draft"
-                            icon="bi-pencil"
-                            variant="outlined"
-                            className="h-8! w-8! rounded-full! border-0! hover:bg-mint-600! hover:text-white!"
-                            onClick={(event) => {
-                              event?.stopPropagation?.();
-                              navigate(`/new?draft=${segment.id}`);
-                            }}
-                          />
-                        )}
+                    <td className='w-24 min-w-24'>
+                      <div className='flex flex-wrap gap-2'>
+                        <IconButton
+                          ariaLabel='Resume schedule draft'
+                          title='Resume schedule draft'
+                          icon='bi-pencil'
+                          variant='outlined'
+                          className='h-8! w-8! rounded-full! border-0! hover:bg-mint-600! hover:text-white!'
+                          onClick={(event) => {
+                            event?.stopPropagation?.();
+                            navigate(
+                              segment.status === 'draft'
+                                ? `/new?draft=${segment.id}`
+                                : `/schedules/${segment.id}/edit`,
+                            );
+                          }}
+                        />
                         <IconButton
                           ariaLabel={
                             segment.status === 'draft'
@@ -170,9 +170,9 @@ const SchedulesPage = () => {
                               ? 'Delete schedule draft'
                               : 'Delete schedule'
                           }
-                          icon="bi-trash"
-                          variant="outlined"
-                          className="h-8! w-8! rounded-full! border-0! text-cherry-600! hover:bg-cherry-600! hover:text-white!"
+                          icon='bi-trash'
+                          variant='outlined'
+                          className='h-8! w-8! rounded-full! border-0! text-cherry-600! hover:bg-cherry-600! hover:text-white!'
                           onClick={(event) => {
                             event?.stopPropagation?.();
                             setDeleteError(null);
@@ -199,17 +199,19 @@ const SchedulesPage = () => {
         onCancel={() => setScheduleToDelete(null)}
         onConfirm={() => void deleteSchedule()}
         confirmLabel={
-          scheduleToDelete?.status === 'draft' ? 'Delete draft' : 'Delete schedule'
+          scheduleToDelete?.status === 'draft'
+            ? 'Delete draft'
+            : 'Delete schedule'
         }
-        confirmVariant="danger"
+        confirmVariant='danger'
       >
-        <div className="flex flex-col gap-3">
+        <div className='flex flex-col gap-3'>
           <p>
-            This {scheduleToDelete?.status === 'draft' ? 'draft' : 'schedule'} and
-            its input will be permanently removed.
+            This {scheduleToDelete?.status === 'draft' ? 'draft' : 'schedule'}{' '}
+            and its input will be permanently removed.
           </p>
           {deleteError && (
-            <p role="alert" className="text-cherry-600">
+            <p role='alert' className='text-cherry-600'>
               {deleteError}
             </p>
           )}

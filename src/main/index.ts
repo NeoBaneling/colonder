@@ -188,7 +188,9 @@ function assertValidSegmentState(value: unknown): asserts value is SegmentState 
   }
   const state = value as Record<string, unknown>;
   if (
-    !['fmla', 'pto', 'prn', 'review'].includes(String(state.step)) ||
+    !['start-date', 'fmla', 'pto', 'prn', 'review'].includes(
+      String(state.step),
+    ) ||
     !isISODate(state.startDate) ||
     !isISODate(state.endDate) ||
     !Array.isArray(state.fmlaEntries) ||
