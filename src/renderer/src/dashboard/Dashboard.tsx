@@ -170,7 +170,7 @@ const Dashboard = () => {
   const showNextSixWeek =
     Boolean(nextSixWeekStart) &&
     nextSixWeekDays >= 0 &&
-    nextSixWeekDays <= 5 &&
+    nextSixWeekDays <= 18 &&
     !hasNextSixWeekSchedule;
   const nextSixWeekEnd =
     showNextSixWeek && settings

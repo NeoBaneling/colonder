@@ -2,6 +2,8 @@ import {
   Dept,
   Emp,
   Role,
+  type FmlaEntry,
+  type ScheduleSegment,
   type SegmentShift,
   type SegmentWarning,
   type Settings,
@@ -64,6 +66,70 @@ export const getSegmentDates = (
 export const cellKey = (staffId: number, date: string): string =>
   `${staffId}:${date}`;
 
+export const togglePtoDate = (ptoDates: string[], key: string): string[] =>
+  ptoDates.includes(key)
+    ? ptoDates.filter((date) => date !== key)
+    : [...ptoDates, key];
+
+export const ptoChangeCount = (
+  originalDates: string[],
+  currentDates: string[],
+): number => {
+  const original = new Set(originalDates);
+  const current = new Set(currentDates);
+  return (
+    [...original].filter((date) => !current.has(date)).length +
+    [...current].filter((date) => !original.has(date)).length
+  );
+};
+
+export const getFmlaCellKeys = (
+  entries: FmlaEntry[],
+  dates: string[],
+): Set<string> => {
+  const keys = new Set<string>();
+  for (const entry of entries) {
+    if (!entry.onFmla) continue;
+    for (const date of dates) {
+      if (
+        (entry.startDate === null || date >= entry.startDate) &&
+        (entry.endDate === null || date <= entry.endDate)
+      ) {
+        keys.add(cellKey(entry.staffId, date));
+      }
+    }
+  }
+  return keys;
+};
+
+export const isValidFmlaRange = (
+  entry: Pick<FmlaEntry, 'startDate' | 'endDate'>,
+  segmentStart?: string,
+  segmentEnd?: string,
+): boolean => {
+  const start = entry.startDate ?? segmentStart;
+  const end = entry.endDate ?? segmentEnd;
+  return start === undefined || end === undefined || end > start;
+};
+
+export const getRolledOverFmlaEntries = (
+  segment: Pick<ScheduleSegment, 'startDate' | 'endDate' | 'state'>,
+  nextStartDate: string,
+): FmlaEntry[] =>
+  segment.state.fmlaEntries
+    .filter(
+      (entry) =>
+        entry.onFmla &&
+        (entry.startDate === null || entry.startDate <= segment.endDate) &&
+        (entry.endDate === null ||
+          (entry.endDate > segment.endDate && entry.endDate >= nextStartDate)),
+    )
+    .map((entry) => ({
+      ...entry,
+      startDate: entry.startDate ?? segment.startDate,
+      rolledOver: true,
+    }));
+
 const isWorking = (shifts: SegmentShift[], staffId: number, date: string) =>
   shifts.some(
     (shift) =>
@@ -84,14 +150,30 @@ export const generateSegmentShifts = (
   prnDates: string[],
   startDate: string,
   seed: number,
+  fmlaEntries: FmlaEntry[] = [],
+  procRooms = 0,
 ): SegmentShift[] => {
   const pto = new Set(ptoDates);
+  const fmla = getFmlaCellKeys(fmlaEntries, dates);
   const prn = new Set(prnDates);
   const shifts: SegmentShift[] = [];
 
+  for (const key of fmla) {
+    const separator = key.indexOf(':');
+    const staffId = Number(key.slice(0, separator));
+    const date = key.slice(separator + 1);
+    shifts.push({
+      staffId,
+      date,
+      kind: 'fmla',
+      countsTowardTargets: false,
+    });
+  }
+
   for (const staffer of staff) {
     for (const date of dates) {
-      if (pto.has(cellKey(staffer.id, date))) {
+      const key = cellKey(staffer.id, date);
+      if (pto.has(key) && !fmla.has(key)) {
         shifts.push({
           staffId: staffer.id,
           date,
@@ -117,7 +199,11 @@ export const generateSegmentShifts = (
 
     for (const staffer of orderedStaff) {
       const availableDates = weekDates.filter(
-        (date) => !pto.has(cellKey(staffer.id, date)),
+        (date) =>
+          !pto.has(cellKey(staffer.id, date)) &&
+          !fmla.has(cellKey(staffer.id, date)) &&
+          (!staffer.preferredWorkingDays?.some(Boolean) ||
+            staffer.preferredWorkingDays[dayOfWeek(date)]),
       );
 
       if (staffer.employment === Emp.PRN) {
@@ -136,8 +222,71 @@ export const generateSegmentShifts = (
 
       const desiredDays =
         staffer.employment === Emp.FullTime ? 4 : 3;
+      if (staffer.role === Role.ChargeNurse) {
+        const selectedDates = [...availableDates]
+          .sort((a, b) => {
+            const chargeCount = (date: string) =>
+              shifts.filter(
+                (shift) =>
+                  shift.date === date &&
+                  shift.kind === 'work' &&
+                  staff.find((member) => member.id === shift.staffId)?.role ===
+                    Role.ChargeNurse,
+              ).length;
+            const countDiff = chargeCount(a) - chargeCount(b);
+            if (countDiff !== 0) return countDiff;
+            return (
+              ((Date.parse(`${a}T00:00:00.000Z`) / DAY_MS +
+                staffer.id +
+                seed) %
+                weekDates.length) -
+              ((Date.parse(`${b}T00:00:00.000Z`) / DAY_MS +
+                staffer.id +
+                seed) %
+                weekDates.length)
+            );
+          })
+          .slice(0, desiredDays);
+
+        for (const date of selectedDates) {
+          shifts.push({
+            staffId: staffer.id,
+            date,
+            kind: 'work',
+            countsTowardTargets: false,
+          });
+        }
+        continue;
+      }
+
       const selectedDates = [...availableDates]
         .sort((a, b) => {
+          if (
+            procRooms > 0 &&
+            staffer.departments.includes(Dept.PROC) &&
+            !staffer.inOrientation
+          ) {
+            const procRoleCount = (date: string) =>
+              shifts.filter((shift) => {
+                if (
+                  shift.date !== date ||
+                  shift.kind !== 'work' ||
+                  !shift.countsTowardTargets
+                ) {
+                  return false;
+                }
+                const person = staff.find(
+                  (member) => member.id === shift.staffId,
+                );
+                return (
+                  person?.role === staffer.role &&
+                  person.departments.includes(Dept.PROC) &&
+                  !person.inOrientation
+                );
+              }).length;
+            const procCountDiff = procRoleCount(a) - procRoleCount(b);
+            if (procCountDiff !== 0) return procCountDiff;
+          }
           const count = (date: string) =>
             shifts.filter(
               (shift) =>
@@ -206,6 +355,17 @@ export const validateSegment = (
         shift.countsTowardTargets &&
         staffById.get(shift.staffId)?.role === Role.Tech,
     ).length;
+    const hasChargeNurse = dayShifts.some(
+      (shift) => staffById.get(shift.staffId)?.role === Role.ChargeNurse,
+    );
+
+    if (!hasChargeNurse) {
+      warnings.push({
+        code: 'CHARGE_COVERAGE_GAP',
+        date,
+        message: `No CSL is scheduled on ${date}.`,
+      });
+    }
 
     if (nurses < settings.targetNurses || techs < settings.targetTechs) {
       warnings.push({
@@ -269,11 +429,13 @@ export const validateSegment = (
         person.employment === Emp.FullTime ? 4 : 3;
       const available = weekDates.filter(
         (date) =>
+          (!person.preferredWorkingDays?.some(Boolean) ||
+            person.preferredWorkingDays[dayOfWeek(date)]) &&
           !shifts.some(
             (shift) =>
               shift.staffId === person.id &&
               shift.date === date &&
-              shift.kind === 'pto',
+              (shift.kind === 'pto' || shift.kind === 'fmla'),
           ),
       );
       const worked = weekDates.filter((date) =>

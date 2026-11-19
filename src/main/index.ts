@@ -32,6 +32,7 @@ type StaffRow = {
   employment: number;
   departments: string;
   startTime: string;
+  preferredWorkingDays: string;
   isLeader: number;
   inOrientation: number;
 };
@@ -62,8 +63,33 @@ const isISODate = (value: unknown): value is string =>
 const isDepartment = (value: unknown): value is Dept =>
   value === Dept.PACU || value === Dept.PROC || value === Dept.PRE;
 
+const isWeeklyDepartment = (value: unknown): value is Dept | 'CHARGE' =>
+  isDepartment(value) || value === 'CHARGE';
+
 const isDepartments = (value: unknown): value is Dept[] =>
   Array.isArray(value) && value.every(isDepartment);
+
+const isPreferredWorkingDays = (
+  value: unknown,
+  employment: unknown,
+): value is boolean[] | undefined => {
+  if (value === undefined || (Array.isArray(value) && value.length === 0)) {
+    return true;
+  }
+  if (
+    !Array.isArray(value) ||
+    value.length !== 7 ||
+    !value.every((day) => typeof day === 'boolean')
+  ) {
+    return false;
+  }
+  const selectedDays = value.filter(Boolean).length;
+  if (selectedDays === 0 || employment === Emp.PRN) return true;
+  return (
+    (employment === Emp.FullTime && selectedDays === 4) ||
+    (employment === Emp.PartTime && selectedDays === 3)
+  );
+};
 
 function assertValidStaff(
   value: unknown,
@@ -83,13 +109,17 @@ function assertValidStaff(
     typeof staff.lastName !== 'string' ||
     staff.lastName.trim().length === 0 ||
     typeof staff.title !== 'string' ||
-    (staff.role !== Role.Nurse && staff.role !== Role.Tech) ||
+    (staff.role !== Role.Nurse &&
+      staff.role !== Role.Tech &&
+      staff.role !== Role.ChargeNurse) ||
     (staff.employment !== Emp.FullTime &&
       staff.employment !== Emp.PartTime &&
       staff.employment !== Emp.PRN) ||
     !isDepartments(staff.departments) ||
     new Set(staff.departments).size !== staff.departments.length ||
+    (staff.role === Role.ChargeNurse && staff.departments.length !== 0) ||
     !timeIsValid ||
+    !isPreferredWorkingDays(staff.preferredWorkingDays, staff.employment) ||
     typeof staff.isLeader !== 'boolean' ||
     typeof staff.inOrientation !== 'boolean' ||
     !Array.isArray(staff.ipcIds) ||
@@ -105,6 +135,7 @@ const listStaff = (): Staff[] => {
     .prepare(
       `SELECT id, first_name AS firstName, last_name AS lastName, title,
               role, employment, departments, start_time AS startTime,
+              preferred_working_days AS preferredWorkingDays,
               is_leader AS isLeader, in_orientation AS inOrientation
        FROM staff ORDER BY id DESC`,
     )
@@ -124,8 +155,14 @@ const listStaff = (): Staff[] => {
 
   return rows.map((row) => {
     const departments: unknown = JSON.parse(row.departments);
+    const preferredWorkingDays: unknown = JSON.parse(row.preferredWorkingDays);
     if (!isDepartments(departments)) {
       throw new Error(`Stored departments are invalid for staff ${row.id}.`);
+    }
+    if (!isPreferredWorkingDays(preferredWorkingDays, row.employment)) {
+      throw new Error(
+        `Stored preferred working days are invalid for staff ${row.id}.`,
+      );
     }
 
     return {
@@ -133,6 +170,8 @@ const listStaff = (): Staff[] => {
       role: row.role as Role,
       employment: row.employment as Emp,
       departments,
+      preferredWorkingDays:
+        preferredWorkingDays?.some(Boolean) ? preferredWorkingDays : undefined,
       isLeader: Boolean(row.isLeader),
       inOrientation: Boolean(row.inOrientation),
       ipcIds: conflictsByStaffId.get(row.id) ?? [],
@@ -149,15 +188,56 @@ function assertValidSegmentState(value: unknown): asserts value is SegmentState 
   }
   const state = value as Record<string, unknown>;
   if (
-    !['pto', 'prn', 'review'].includes(String(state.step)) ||
+    !['start-date', 'fmla', 'pto', 'prn', 'review'].includes(
+      String(state.step),
+    ) ||
     !isISODate(state.startDate) ||
     !isISODate(state.endDate) ||
+    !Array.isArray(state.fmlaEntries) ||
+    !state.fmlaEntries.every((entry) => {
+      if (typeof entry !== 'object' || entry === null) return false;
+      const fmla = entry as Record<string, unknown>;
+      return (
+        Number.isSafeInteger(fmla.staffId) &&
+        Number(fmla.staffId) > 0 &&
+        typeof fmla.onFmla === 'boolean' &&
+        (fmla.startDate === null || isISODate(fmla.startDate)) &&
+        (fmla.endDate === null || isISODate(fmla.endDate)) &&
+        typeof fmla.rolledOver === 'boolean' &&
+        isISODate(state.startDate) &&
+        isISODate(state.endDate) &&
+        String(fmla.endDate ?? state.endDate) >
+          String(fmla.startDate ?? state.startDate)
+      );
+    }) ||
     !Array.isArray(state.ptoDates) ||
     !state.ptoDates.every((key) => typeof key === 'string') ||
     !Array.isArray(state.prnDates) ||
     !state.prnDates.every((key) => typeof key === 'string') ||
     !Array.isArray(state.onCall) ||
     !state.onCall.every((key) => typeof key === 'string') ||
+    (state.onCallDepartments !== undefined &&
+      (typeof state.onCallDepartments !== 'object' ||
+        state.onCallDepartments === null ||
+        Array.isArray(state.onCallDepartments) ||
+        !Object.values(state.onCallDepartments).every(
+          (department) => department === Dept.PACU || department === Dept.PROC,
+        ))) ||
+    (state.weekendOnCall !== undefined &&
+      (!Array.isArray(state.weekendOnCall) ||
+        !state.weekendOnCall.every((assignment) => {
+          if (typeof assignment !== 'object' || assignment === null) return false;
+          const entry = assignment as Record<string, unknown>;
+          return (
+            isISODate(entry.weekStart) &&
+            (entry.staffId === null ||
+              (Number.isSafeInteger(entry.staffId) && Number(entry.staffId) > 0))
+          );
+        }))) ||
+    (state.onCallManuallyEdited !== undefined &&
+      typeof state.onCallManuallyEdited !== 'boolean') ||
+    (state.onCallAutoApplied !== undefined &&
+      typeof state.onCallAutoApplied !== 'boolean') ||
     !Array.isArray(state.shifts) ||
     !state.shifts.every(
       (shift) =>
@@ -165,7 +245,7 @@ function assertValidSegmentState(value: unknown): asserts value is SegmentState 
         shift !== null &&
         Number.isSafeInteger((shift as Record<string, unknown>).staffId) &&
         isISODate((shift as Record<string, unknown>).date) &&
-        ['work', 'pto'].includes(
+        ['work', 'pto', 'fmla'].includes(
           String((shift as Record<string, unknown>).kind),
         ) &&
         typeof (shift as Record<string, unknown>).countsTowardTargets ===
@@ -192,7 +272,15 @@ function assertValidSegmentState(value: unknown): asserts value is SegmentState 
 }
 
 const mapSegmentRow = (row: SegmentRow): ScheduleSegment => {
-  const state: unknown = JSON.parse(row.state);
+  const parsedState: unknown = JSON.parse(row.state);
+  if (typeof parsedState !== 'object' || parsedState === null) {
+    throw new TypeError('Invalid schedule draft.');
+  }
+  const state = {
+    ...parsedState,
+    fmlaEntries:
+      'fmlaEntries' in parsedState ? parsedState.fmlaEntries : [],
+  };
   assertValidSegmentState(state);
   return {
     id: row.id,
@@ -243,8 +331,11 @@ function assertValidWeeklyAssignments(
           shift.date === item.date &&
           shift.kind === 'work',
       ) ||
-      !isDepartment(item.department) ||
-      !staffer.departments.includes(item.department) ||
+      !isWeeklyDepartment(item.department) ||
+      (item.department === 'CHARGE'
+        ? staffer.role !== Role.ChargeNurse || item.room !== null
+        : staffer.role === Role.ChargeNurse ||
+          !staffer.departments.includes(item.department)) ||
       !validRoom ||
       typeof item.startTime !== 'string' ||
       !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(item.startTime) ||
@@ -294,8 +385,8 @@ const saveStaff = (staff: Omit<Staff, 'id'>, id?: number): Staff => {
         .prepare(
           `INSERT INTO staff
             (first_name, last_name, title, role, employment, departments,
-             start_time, is_leader, in_orientation)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             start_time, preferred_working_days, is_leader, in_orientation)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           staff.firstName.trim(),
@@ -305,6 +396,7 @@ const saveStaff = (staff: Omit<Staff, 'id'>, id?: number): Staff => {
           staff.employment,
           JSON.stringify(staff.departments),
           staff.startTime,
+          JSON.stringify(staff.preferredWorkingDays ?? []),
           Number(staff.isLeader),
           Number(staff.inOrientation),
         );
@@ -320,7 +412,7 @@ const saveStaff = (staff: Omit<Staff, 'id'>, id?: number): Staff => {
           `UPDATE staff
            SET first_name = ?, last_name = ?, title = ?, role = ?,
                employment = ?, departments = ?, start_time = ?,
-               is_leader = ?, in_orientation = ?
+               preferred_working_days = ?, is_leader = ?, in_orientation = ?
            WHERE id = ?`,
         )
         .run(
@@ -331,6 +423,7 @@ const saveStaff = (staff: Omit<Staff, 'id'>, id?: number): Staff => {
           staff.employment,
           JSON.stringify(staff.departments),
           staff.startTime,
+          JSON.stringify(staff.preferredWorkingDays ?? []),
           Number(staff.isLeader),
           Number(staff.inOrientation),
           staffId,
@@ -459,7 +552,8 @@ app.whenReady().then(() => {
       departments TEXT NOT NULL DEFAULT '[]',
       start_time TEXT NOT NULL DEFAULT '07:00',
       is_leader INTEGER NOT NULL DEFAULT 0,
-      in_orientation INTEGER NOT NULL DEFAULT 0
+      in_orientation INTEGER NOT NULL DEFAULT 0,
+      preferred_working_days TEXT NOT NULL DEFAULT '[]'
     )
   `);
   const staffColumns = new Set(
@@ -475,6 +569,7 @@ app.whenReady().then(() => {
     ['start_time', "TEXT NOT NULL DEFAULT '07:00'"],
     ['is_leader', 'INTEGER NOT NULL DEFAULT 0'],
     ['in_orientation', 'INTEGER NOT NULL DEFAULT 0'],
+    ['preferred_working_days', "TEXT NOT NULL DEFAULT '[]'"],
   ] as const;
   for (const [column, definition] of staffMigrations) {
     if (!staffColumns.has(column)) {
@@ -757,6 +852,15 @@ app.whenReady().then(() => {
           `DELETE FROM schedule_segment WHERE id = ? AND status = 'draft'`,
         )
         .run(id).changes > 0
+    );
+  });
+  ipcMain.handle('segments:delete', (_event, id: number): boolean => {
+    if (!Number.isSafeInteger(id) || id < 1) {
+      throw new TypeError('Invalid schedule ID.');
+    }
+    return (
+      database.prepare('DELETE FROM schedule_segment WHERE id = ?').run(id)
+        .changes > 0
     );
   });
 

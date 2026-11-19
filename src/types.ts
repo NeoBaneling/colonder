@@ -1,6 +1,7 @@
 export enum Role {
   Nurse,
   Tech,
+  ChargeNurse,
 }
 
 export enum Emp {
@@ -25,6 +26,7 @@ export interface Staff {
   departments: Dept[];
   /* format HH:MM */
   startTime: string;
+  preferredWorkingDays?: boolean[];
   isLeader: boolean;
   inOrientation: boolean;
   ipcIds: number[];
@@ -39,7 +41,7 @@ export interface Settings {
   isDark: boolean;
 }
 
-export type SegmentStep = 'pto' | 'prn' | 'review';
+export type SegmentStep = 'start-date' | 'fmla' | 'pto' | 'prn' | 'review';
 
 export type SegmentWarning = {
   code:
@@ -47,6 +49,7 @@ export type SegmentWarning = {
     | 'STAFF_SHORT_OF_DAYS'
     | 'IPC_SAME_DAY'
     | 'LEADER_COVERAGE_GAP'
+    | 'CHARGE_COVERAGE_GAP'
     | 'ONCALL_MULTIPLE';
   message: string;
   date?: string;
@@ -56,18 +59,31 @@ export type SegmentWarning = {
 export type SegmentShift = {
   staffId: number;
   date: string;
-  kind: 'work' | 'pto';
+  kind: 'work' | 'pto' | 'fmla';
   countsTowardTargets: boolean;
+};
+
+export type FmlaEntry = {
+  staffId: number;
+  onFmla: boolean;
+  startDate: string | null;
+  endDate: string | null;
+  rolledOver: boolean;
 };
 
 export interface SegmentState {
   step: SegmentStep;
   startDate: string;
   endDate: string;
+  fmlaEntries: FmlaEntry[];
   ptoDates: string[];
   prnDates: string[];
   shifts: SegmentShift[];
   onCall: string[];
+  onCallDepartments?: Record<string, Dept>;
+  weekendOnCall?: Array<{ weekStart: string; staffId: number | null }>;
+  onCallManuallyEdited?: boolean;
+  onCallAutoApplied?: boolean;
   staffSnapshot: Staff[];
   settingsSnapshot: Settings;
   seed: number;
@@ -86,7 +102,7 @@ export interface ScheduleSegment {
 export interface WeeklyAssignment {
   date: string;
   staffId: number;
-  department: Dept;
+  department: Dept | 'CHARGE';
   room: number | null;
   startTime: string;
 }

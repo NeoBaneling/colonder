@@ -5,7 +5,8 @@ export type IconButtonProps = {
   ariaLabel?: string;
   className?: string;
   disabled?: boolean;
-  icon: string;
+  icon?: string;
+  iconImage?: string;
   onClick?: (event: MouseEvent<HTMLButtonElement>) => void;
   title?: string;
   variant: 'filled' | 'outlined';
@@ -15,6 +16,7 @@ export const IconButton = ({
   ariaLabel,
   disabled,
   icon,
+  iconImage,
   onClick,
   title,
   variant = 'filled',
@@ -35,6 +37,10 @@ export const IconButton = ({
       className,
     )}
   >
-    <i className={`bi ${icon}`} />
+    {iconImage ? (
+      <img className='icon-button-image' src={iconImage} alt='' />
+    ) : icon ? (
+      <i className={`bi ${icon}`} />
+    ) : null}
   </button>
 );

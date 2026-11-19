@@ -12,6 +12,7 @@ const validStaffForm: StaffFormData = {
   isPacu: false,
   isPreop: false,
   startTime: '07:00',
+  preferredWorkingDays: Array.from({ length: 7 }, () => false),
   isLeader: false,
   inOrientation: false,
   ipcIds: [],
@@ -56,6 +57,60 @@ describe('staffFormSchema', () => {
     await expect(staffFormSchema.validate(validStaffForm)).resolves.toEqual(
       validStaffForm,
     );
+  });
+
+  it('requires four full-time or three part-time preferred days when set', async () => {
+    const fourDays = [false, true, true, true, true, false, false];
+    const threeDays = [false, true, true, true, false, false, false];
+
+    await expect(
+      staffFormSchema.validate({
+        ...validStaffForm,
+        preferredWorkingDays: fourDays,
+      }),
+    ).resolves.toMatchObject({ preferredWorkingDays: fourDays });
+    await expect(
+      staffFormSchema.validate({
+        ...validStaffForm,
+        preferredWorkingDays: threeDays,
+        employment: Emp.PartTime,
+      }),
+    ).resolves.toMatchObject({ preferredWorkingDays: threeDays });
+    await expect(
+      staffFormSchema.validate({
+        ...validStaffForm,
+        preferredWorkingDays: threeDays,
+      }),
+    ).rejects.toMatchObject({
+      path: 'preferredWorkingDays',
+    });
+  });
+
+  it('accepts charge nurses without departments', async () => {
+    await expect(
+      staffFormSchema.validate({
+        ...validStaffForm,
+        role: Role.ChargeNurse,
+        isProc: false,
+      }),
+    ).resolves.toMatchObject({
+      role: Role.ChargeNurse,
+      isProc: false,
+      isPacu: false,
+      isPreop: false,
+    });
+  });
+
+  it('rejects charge nurses assigned to a department', async () => {
+    await expect(
+      staffFormSchema.validate({
+        ...validStaffForm,
+        role: Role.ChargeNurse,
+      }),
+    ).rejects.toMatchObject({
+      path: 'isProc',
+      message: 'Charge nurses cannot belong to a department',
+    });
   });
 
   it('accepts start times at any minute', async () => {

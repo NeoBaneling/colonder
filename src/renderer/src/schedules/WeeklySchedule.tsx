@@ -131,8 +131,10 @@ export const WeeklySchedulePage = () => {
     const allPeople = staff.filter((person) => person.startTime);
     const values = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
     return allPeople.slice(0, 5).map((person) => ({
-      department: `${person.lastName} ${person.firstName.slice(0, 1)}.`,
-      values: values.map((_, index) => `${person.firstName.slice(0, 1)}. ${person.lastName} · ${person.startTime}`),
+      department: `${person.firstName} ${person.lastName.slice(0, 1)}.`,
+      values: values.map(
+        () => `${person.firstName} ${person.lastName.slice(0, 1)}. · ${person.startTime}`,
+      ),
     }));
   }, [segments, settings, staff]);
 
